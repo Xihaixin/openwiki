@@ -1,13 +1,13 @@
 [build-system]
 requires = ["setuptools>=64.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.setuptools.packages.find]
 include = ["core*", "rag_optimizer*", "api*", "llm_clients*"]
 namespaces = false
 
 [project]
-name = "rag_build"
+name = "openwiki"
 version = "2.0.0"
 description = "DeepWiki-open 重构版 — 基于 PostgreSQL + pgvector 的 RAG 系统"
 readme = "README.md"
