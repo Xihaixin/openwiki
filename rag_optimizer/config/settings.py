@@ -15,7 +15,7 @@ load_dotenv()
 # ============================================================
 # 项目路径
 # ============================================================
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # rag_build/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # openwiki/
 RAG_OPTIMIZER_DIR = PROJECT_ROOT / "rag_optimizer"
 
 
