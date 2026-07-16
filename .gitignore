@@ -26,4 +26,4 @@ core/config/logs
 *.log
 
 .aidocs
-
+.env.example
