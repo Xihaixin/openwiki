@@ -31,7 +31,7 @@ logger = logging.getLogger("core.config")
 # ============================================================
 # 环境变量
 # ============================================================
-
+ADALFLOW_DIR = os.environ.get("ADALFLOW_DIR")
 # API Keys
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")

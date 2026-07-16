@@ -5,14 +5,16 @@ OpenWiki-Study API 端点
 保持与原始 deepwiki-open 前端兼容的 API 接口。
 """
 
+import os
+import sys
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+from core.config import ADALFLOW_DIR
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -51,7 +53,17 @@ app.add_middleware(
 
 def get_adalflow_default_root_path() -> str:
     """获取 Adalflow 默认根路径"""
-    project_path = r"D:\ProgramFile2_OR\Python_Study_System\OpenStudy\DATA_SOURCE"
+    platform = sys.platform
+    if ADALFLOW_DIR:
+        project_path = ADALFLOW_DIR
+    elif platform == "win32":
+        project_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))    
+    elif platform == "adarwin":
+        project_path = os.path.join(os.path.expanduser('~'), 'Library')
+    else:
+        # Linux/Unix: ~/.cache/
+        # 遵循 XDG Base Directory Specification
+        project_path = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')) 
     return os.path.expanduser(os.path.join(project_path, ".adalflow"))
 
 
