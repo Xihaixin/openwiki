@@ -838,66 +838,75 @@ IMPORTANT:
 
       // Use WebSocket for communication
       let responseText = '';
+      let ws: WebSocket | null = null;
 
       try {
         // Create WebSocket URL from the server base URL
         const serverBaseUrl = process.env.SERVER_BASE_URL || 'http://localhost:8001';
-        const wsBaseUrl = serverBaseUrl.replace(/^http/, 'ws')? serverBaseUrl.replace(/^https/, 'wss'): serverBaseUrl.replace(/^http/, 'ws');
+        const wsBaseUrl = serverBaseUrl.replace(/^http/, 'ws'); // FIX 1: 正确转换 http→ws, https→wss
         const wsUrl = `${wsBaseUrl}/ws/chat`;
 
         // Create a new WebSocket connection
-        const ws = new WebSocket(wsUrl);
+        ws = new WebSocket(wsUrl);
 
         // Create a promise that resolves when the WebSocket connection is complete
         await new Promise<void>((resolve, reject) => {
-          // Set up event handlers
-          ws.onopen = () => {
-            console.log('WebSocket connection established for wiki structure');
-            // Send the request as JSON
-            ws.send(JSON.stringify(requestBody));
-            resolve();
-          };
-
-          ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            reject(new Error('WebSocket connection failed'));
-          };
-
           // If the connection doesn't open within 5 seconds, fall back to HTTP
           const timeout = setTimeout(() => {
+            ws?.close(); // FIX 3: 超时时主动关闭 WebSocket
             reject(new Error('WebSocket connection timeout'));
           }, 5000);
 
-          // Clear the timeout if the connection opens successfully
-          ws.onopen = () => {
+          // FIX 2: 只保留一个 onopen 赋值，清除冗余代码
+          ws!.onopen = () => {
             clearTimeout(timeout);
             console.log('WebSocket connection established for wiki structure');
             // Send the request as JSON
-            ws.send(JSON.stringify(requestBody));
+            ws?.send(JSON.stringify(requestBody));
             resolve();
+          };
+
+          // FIX 5: onerror 只做日志，由 onclose 统一处理 reject
+          ws!.onerror = () => {
+            clearTimeout(timeout);
+          };
+
+          // FIX 5: 统一由 onclose 根据 wasClean 决定 resolve/reject
+          ws!.onclose = (event) => {
+            if (!event.wasClean) {
+              reject(new Error(`WebSocket connection failed: code=${event.code}`));
+            }
           };
         });
 
         // Create a promise that resolves when the WebSocket response is complete
         await new Promise<void>((resolve, reject) => {
           // Handle incoming messages
-          ws.onmessage = (event) => {
+          ws!.onmessage = (event) => {
+            if (event.data === '[DONE]') return; // FIX 4: 过滤结束标记
             responseText += event.data;
           };
 
-          // Handle WebSocket close
-          ws.onclose = () => {
+          // FIX 5: 统一由 onclose 根据 wasClean 决定 resolve/reject
+          ws!.onclose = (event) => {
             console.log('WebSocket connection closed for wiki structure');
-            resolve();
+            if (event.wasClean) {
+              resolve();
+            } else {
+              reject(new Error(`WebSocket closed with code: ${event.code}`));
+            }
           };
 
-          // Handle WebSocket errors
-          ws.onerror = (error) => {
-            console.error('WebSocket error during message reception:', error);
-            reject(new Error('WebSocket error during message reception'));
+          // FIX 5: onerror 只做日志，由 onclose 处理结果
+          ws!.onerror = () => {
+            console.error('WebSocket error during message reception');
           };
         });
       } catch (wsError) {
+        // FIX 3: 清理 WebSocket 资源
+        if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.close();
+        }
         console.error('WebSocket error, falling back to HTTP:', wsError);
 
         // Fall back to HTTP if WebSocket fails
