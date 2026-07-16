@@ -83,7 +83,6 @@ import time
 from typing import Any, Optional
 
 from rag_optimizer.config.settings import settings
-from rag_optimizer.infrastructure.redis_server import _start_redis_server
 
 logger = logging.getLogger(__name__)
 
