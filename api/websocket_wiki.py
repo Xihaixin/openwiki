@@ -60,7 +60,11 @@ async def handle_websocket_chat(websocket: WebSocket):
         provider: str = request_data.get("provider", "dashscope")
         model = request_data.get("model")
         language: str = request_data.get("language", "en")
-        query: str = request_data.get("query", "")
+        messages = request_data.get("messages", [])
+        if isinstance(messages, list) and len(messages) > 0:
+            query: str = messages[-1].get("content", "")
+        else:
+            query: str = request_data.get("query", "")
         deep_research: bool = request_data.get("deep_research", False)
         research_iterations: int = request_data.get("research_iterations", 5)
 
