@@ -30,7 +30,7 @@ from core.models import WikiPage, WikiStructure
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+wiki_router = APIRouter()
 
 
 # ============================================================
@@ -47,6 +47,7 @@ class WikiGenerateRequest(BaseModel):
     language: str = Field(default="zh", description="语言代码")
     comprehensive: bool = Field(default=True, description="是否生成综合 Wiki（更多页面）")
     local_path: Optional[str] = Field(default=None, description="本地仓库路径（repo_type=local 时使用）")
+    token: Optional[str] = Field(default=None, description="个人申请的 access token 密钥")
 
 
 class WikiPageGenerateRequest(BaseModel):
@@ -66,7 +67,7 @@ class WikiPageGenerateRequest(BaseModel):
 # ============================================================
 
 
-@router.post("/wiki/generate")
+@wiki_router.post("/wiki/generate")
 async def generate_wiki(request: WikiGenerateRequest):
     """
     生成完整的 Wiki 文档
@@ -104,8 +105,8 @@ async def generate_wiki(request: WikiGenerateRequest):
                     "step": "fetch_structure",
                     "message": "正在获取仓库文件结构...",
                 })
-
-                file_tree, readme = flow.fetch_repository_structure()
+ 
+                file_tree, readme = flow.fetch_repository_structure(token=request.token)
 
                 yield _sse_event("progress", {
                     "step": "fetch_structure_done",
@@ -209,7 +210,7 @@ async def generate_wiki(request: WikiGenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/wiki/generate/page")
+@wiki_router.post("/wiki/generate/page")
 async def generate_wiki_page(request: WikiPageGenerateRequest):
     """
     生成单个 Wiki 页面

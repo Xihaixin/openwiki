@@ -46,7 +46,7 @@ for _root in [_project_root_via_file, _project_root_via_cwd]:
         sys.path.insert(0, _root_str)
         break
 
-from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
+from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES, ADALFLOW_DIR
 from core.utils.repo import download_repo
 from core.utils.documents import read_all_documents
 from rag_optimizer.db.repository import (
@@ -105,6 +105,7 @@ class DataIngestor:
         included_dirs: Optional[List[str]] = None,
         included_files: Optional[List[str]] = None,
         local_path: Optional[str] = None,
+        token: Optional[str] = None,
     ):
         """
         Args:
@@ -121,13 +122,14 @@ class DataIngestor:
             raise ValueError("必须提供 repo_url 或 local_path 其中之一")
 
         self.repo_url = repo_url or ""
-        self.repo_type = repo_type
+        self.repo_type = repo_type  # 这里 repo_type 指的是一个项目仓库的类型：github | gitlab
         self.access_token = access_token
         self.excluded_dirs = excluded_dirs or DEFAULT_EXCLUDED_DIRS
         self.excluded_files = excluded_files or DEFAULT_EXCLUDED_FILES
         self.included_dirs = included_dirs
         self.included_files = included_files
         self.local_path = local_path
+        self.token = token
 
         # 提取仓库名：优先从 repo_url，其次从 local_path
         self.repo_name = self._extract_repo_name(repo_url) if repo_url else self._extract_name_from_path(local_path)

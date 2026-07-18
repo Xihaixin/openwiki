@@ -102,7 +102,7 @@ class WikiGenerationFlow(BaseFlow):
 
     # ── 步骤 1: 获取仓库结构 ──────────────────────────────────────────────
 
-    def fetch_repository_structure(self) -> Tuple[str, str]:
+    def fetch_repository_structure(self,token:Optional[str]=None) -> Tuple[str, str]:
         """
         获取仓库文件树和 README 内容。
 
@@ -139,6 +139,7 @@ class WikiGenerationFlow(BaseFlow):
                 repo_type=self.repo_type,
                 access_token=None,
                 local_path=self.local_path,
+                token=token,
             )
             project_id = ingestor.run()
 
