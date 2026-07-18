@@ -16,10 +16,11 @@ core.config — 统一配置模块
   3. rag_optimizer.config.settings（底层默认值）
 """
 
+import re
+import os
+import sys
 import json
 import logging
-import os
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -28,10 +29,32 @@ from rag_optimizer.config.settings import settings
 logger = logging.getLogger("core.config")
 
 
+
+ADALFLOW_DIR = os.environ.get("ADALFLOW_DIR")
+
+def get_adalflow_default_root_path() -> str:
+    """获取 Adalflow 默认根路径"""
+    platform = sys.platform
+    if ADALFLOW_DIR:
+        project_path = ADALFLOW_DIR
+    elif platform == "win32":
+        project_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))    
+    elif platform == "adarwin":
+        project_path = os.path.join(os.path.expanduser('~'), 'Library')
+    else:
+        # Linux/Unix: ~/.cache/
+        # 遵循 XDG Base Directory Specification
+        project_path = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')) 
+    return os.path.expanduser(os.path.join(project_path, ".adalflow"))
+
+
+WIKI_CACHE_DIR = os.path.join(get_adalflow_default_root_path(), "wikicache")
+os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
+
 # ============================================================
 # 环境变量
 # ============================================================
-ADALFLOW_DIR = os.environ.get("ADALFLOW_DIR")
+
 # API Keys
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")

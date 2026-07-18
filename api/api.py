@@ -6,16 +6,14 @@ OpenWiki-Study API 端点
 """
 
 import os
-import sys
 import asyncio
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from core.config import ADALFLOW_DIR
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from core.config import WIKI_CACHE_DIR
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -44,31 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ============================================================
-# 辅助函数
-# ============================================================
-
-
-def get_adalflow_default_root_path() -> str:
-    """获取 Adalflow 默认根路径"""
-    platform = sys.platform
-    if ADALFLOW_DIR:
-        project_path = ADALFLOW_DIR
-    elif platform == "win32":
-        project_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))    
-    elif platform == "adarwin":
-        project_path = os.path.join(os.path.expanduser('~'), 'Library')
-    else:
-        # Linux/Unix: ~/.cache/
-        # 遵循 XDG Base Directory Specification
-        project_path = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')) 
-    return os.path.expanduser(os.path.join(project_path, ".adalflow"))
-
-
-WIKI_CACHE_DIR = os.path.join(get_adalflow_default_root_path(), "wikicache")
-os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
 
 
 # ============================================================
@@ -390,11 +363,14 @@ def generate_json_export(repo_url: str, pages: List[WikiPage]) -> str:
 # ============================================================
 # 导入聊天和 WebSocket 端点
 # ============================================================
-
+from api.wiki_generation import wiki_router
 from api.simple_chat import router as chat_router
 from api.websocket_wiki import handle_websocket_chat
 
-# 注册聊天路由
+# 注册 sse 流式 wiki 生成路由
+app.include_router(wiki_router)
+
+# 注册聊天路由 sse 流式
 app.include_router(chat_router)
 
 # 注册 WebSocket 端点
