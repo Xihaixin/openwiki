@@ -20,8 +20,8 @@ base.py — 业务流公共基类
   - rag_optimizer.db.repository — ProjectRepository
 """
 
-import logging
 import os
+import logging
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -56,7 +56,7 @@ def parse_repo_url(repo_url: str) -> Dict[str, str]:
     if repo_url.startswith("file://"):
         local_path = repo_url.replace("file:///", "").replace("file://", "")
         dirname = os.path.basename(os.path.normpath(local_path))
-        return {"owner": "", "repo": dirname, "repo_type": "local"}
+        return {"owner": "default", "repo": dirname, "repo_type": "local"}  # 如果是本地项目，默认作者是 default
 
     parsed = urlparse(repo_url)
     path_parts = parsed.path.strip("/").split("/")
@@ -229,16 +229,16 @@ class BaseFlow:
             projects = ProjectRepository.list_all()
             for proj in projects:
                 # 1. 按 repo_url 匹配
-                proj_url = proj.get("repo_url", "") or proj.get("url", "")
-                if proj_url and (self.repo_url in proj_url or proj_url in self.repo_url):
-                    pid = proj.get("id") or proj.get("project_id")
+                proj_url = proj.get("repo_url", "")
+                if proj_url and (self.repo_url in proj_url or proj_url in self.repo_url):  ## TODO: 这里采用 url 包含的逻辑来判断我们要找的 url 在数据库中是否存在。应该封装一个工具专门进行检查
+                    pid = proj.get("id") 
                     self.project_id = str(pid) if pid else None
                     return self.project_id
 
                 # 2. 按项目名称匹配（从 repo_url 解析出的 repo 名）
                 proj_name = proj.get("name", "")
                 if self.repo and self.repo.lower() in proj_name.lower():
-                    pid = proj.get("id") or proj.get("project_id")
+                    pid = proj.get("id") 
                     self.project_id = str(pid) if pid else None
                     return self.project_id
 
@@ -246,7 +246,7 @@ class BaseFlow:
                 if self.local_path:
                     local_dirname = os.path.basename(os.path.normpath(self.local_path.rstrip("/\\")))
                     if local_dirname.lower() == proj_name.lower():
-                        pid = proj.get("id") or proj.get("project_id")
+                        pid = proj.get("id")
                         self.project_id = str(pid) if pid else None
                         logger.info(f"✓ 通过 local_path 匹配到项目: {proj_name} (id={self.project_id})")
                         return self.project_id

@@ -121,9 +121,10 @@ class WikiGenerationFlow(BaseFlow):
         logger.info("步骤 1: 获取仓库结构 (fetch_repository_structure)")
         logger.info("=" * 60)
 
+        # 默认为 True
         if self.use_database:
             logger.info("尝试从数据库获取仓库结构...")
-            result = self._fetch_from_database()
+            result = self._fetch_from_database()  # 该函数返回的 filetree 和 readme 文件是手动构建出来的
             if result is not None:
                 self.file_tree, self.readme = result
                 logger.info(f"✓ 从数据库获取文件树 ({len(self.file_tree)} 字符)")
@@ -183,7 +184,7 @@ class WikiGenerationFlow(BaseFlow):
         try:
             # 查找项目
             if not self.project_id:
-                self._find_project_id()
+                self.project_id = self._find_project_id() 
 
             if not self.project_id:
                 logger.warning(f"未找到匹配的项目: {self.repo_url}")
@@ -213,7 +214,7 @@ class WikiGenerationFlow(BaseFlow):
                 indent = "  " * depth
                 file_tree_lines.append(f"{indent}{file_path}")
 
-            file_tree = "\n".join(sorted(file_tree_lines))
+            file_tree = "\n".join(file_tree_lines)
             readme = readme_content or "# No README found"
 
             return file_tree, readme
@@ -240,10 +241,9 @@ class WikiGenerationFlow(BaseFlow):
         logger.info("步骤 2: 确定 Wiki 结构 (determine_wiki_structure)")
         logger.info("=" * 60)
 
-        # 确保已有文件树和 README
+        # 确保已有文件树和 README 
         if not self.file_tree or not self.readme:
             self.fetch_repository_structure()
-
         # 构建 prompt
         prompt = self._build_structure_prompt()
         logger.info(f"构建的结构 prompt ({len(prompt)} 字符)")
@@ -690,7 +690,7 @@ Return ONLY valid XML with this exact structure:
                 logger.info("  数据库中没有文档记录")
                 return {}
 
-            # 建立 file_path → content 索引
+            # 建立 file_path → content 索引 #BUG: 每调用一次 _fetch_file_contents 函数，都需要从数据库中加载所有的文档，重复构建 doc_map，无法复用，效率低下
             doc_map: Dict[str, str] = {}
             for doc in documents:
                 fp = doc.get("file_path", "")

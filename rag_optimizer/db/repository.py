@@ -178,7 +178,7 @@ class DocumentRepository:
         query = "SELECT * FROM raw_documents WHERE project_id = %s"
         if not include_deleted:
             query += " AND is_deleted = FALSE"
-        query += " ORDER BY file_path"
+        query += " ORDER BY created_at"
         result = sync_conn.execute(query, (project_id,))
         return [dict(r) for r in result] if result else []
 
