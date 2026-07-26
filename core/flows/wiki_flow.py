@@ -256,7 +256,7 @@ class WikiGenerationFlow(BaseFlow):
 
         本实现直接调用 call_llm_stream() 而非通过 WebSocket。
         """
-        logger.info("\n" + "=" * 60)
+        logger.info("=" * 60)
         logger.info("步骤 2: 确定 Wiki 结构 (determine_wiki_structure)")
         logger.info("=" * 60)
 
@@ -607,7 +607,7 @@ Return ONLY valid XML with this exact structure:
 
         本实现串行调用 LLM 为每个页面生成内容。
         """
-        logger.info("\n" + "=" * 60)
+        logger.info("=" * 60)
         logger.info("步骤 3: 生成所有页面 (_generate_all_pages)")
         logger.info("=" * 60)
 
@@ -922,7 +922,7 @@ Return ONLY valid XML with this exact structure:
             return 0
 
         saved_count = 0
-        logger.info("\n" + "=" * 60)
+        logger.info("=" * 60)
         logger.info("步骤 4: 保存 Wiki 页面到数据库 (_save_to_database)")
         logger.info("=" * 60)
 

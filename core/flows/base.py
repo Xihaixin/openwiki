@@ -128,7 +128,7 @@ def get_cache_key(
     对应前端 page.tsx 中的 getCacheKey() 函数。
     """
     mode = "comprehensive" if comprehensive else "concise"
-    return f"deepwiki_cache_{repo_type}_{owner}_{repo}_{language}_{mode}"
+    return f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}_{mode}"
 
 
 def generate_file_url(file_path: str, repo_url: str, repo_type: str = "github") -> str:

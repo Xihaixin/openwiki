@@ -384,7 +384,7 @@ app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
 
 def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str) -> str:
     """生成 Wiki 缓存文件路径"""
-    filename = f"OpenWiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
+    filename = f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
     return os.path.join(WIKI_CACHE_DIR, filename)
 
 
@@ -574,11 +574,11 @@ async def get_processed_projects():
             filenames = await asyncio.to_thread(os.listdir, WIKI_CACHE_DIR)
 
             for filename in filenames:
-                if filename.startswith("deepwiki_cache_") and filename.endswith(".json"):
+                if filename.startswith("openwiki_cache_") and filename.endswith(".json"):
                     file_path = os.path.join(WIKI_CACHE_DIR, filename)
                     try:
                         stats = await asyncio.to_thread(os.stat, file_path)
-                        parts = filename.replace("deepwiki_cache_", "").replace(".json", "").split("_")
+                        parts = filename.replace("openwiki_cache_", "").replace(".json", "").split("_")
 
                         if len(parts) >= 4:
                             repo_type = parts[0]
