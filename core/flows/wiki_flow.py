@@ -68,7 +68,22 @@ class WikiGenerationFlow(BaseFlow):
         comprehensive: bool = True,
         use_database: bool = True,
         local_path: Optional[str] = None,
+        use_proxy: Optional[bool] = None,
     ):
+        """
+        Args:
+            repo_url: 仓库 URL
+            provider: LLM 提供者
+            model: 模型名称
+            language: 语言代码
+            comprehensive: 是否生成综合 Wiki
+            use_database: 是否使用数据库
+            local_path: 本地仓库路径
+            use_proxy:
+                - True: 强制启用代理
+                - False: 强制禁用代理
+                - None（默认）: 自动检测（检查 OPENWIKI_GIT_PROXY 环境变量）
+        """
         # 调用 BaseFlow.__init__ 初始化公共属性
         super().__init__(
             repo_url=repo_url,
@@ -76,10 +91,13 @@ class WikiGenerationFlow(BaseFlow):
             model=model,
             language=language,
             use_database=use_database,
+            local_path=local_path,
+            use_proxy=use_proxy,
         )
 
         self.comprehensive = comprehensive
         self.local_path = local_path
+        self.use_proxy = use_proxy
 
         # Wiki 生成状态
         self.file_tree: Optional[str] = None
@@ -117,7 +135,7 @@ class WikiGenerationFlow(BaseFlow):
              如果数据库无数据，自动触发 DataIngestor 摄取管道
           2. use_database=False → 使用 fixtures 中的样本数据
         """
-        logger.info("\n" + "=" * 60)
+        logger.info("=" * 60)
         logger.info("步骤 1: 获取仓库结构 (fetch_repository_structure)")
         logger.info("=" * 60)
 
@@ -141,6 +159,7 @@ class WikiGenerationFlow(BaseFlow):
                 access_token=None,
                 local_path=self.local_path,
                 token=token,
+                use_proxy=self.use_proxy,
             )
             project_id = ingestor.run()
 

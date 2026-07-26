@@ -18,6 +18,109 @@ logger = logging.getLogger("core.utils.repo")
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# 代理配置
+# ══════════════════════════════════════════════════════════════════════════
+
+# 代理环境变量名列表（按优先级从高到低）
+_PROXY_ENV_VARS = [
+    "HTTPS_PROXY", "https_proxy",
+    "HTTP_PROXY", "http_proxy",
+    "ALL_PROXY", "all_proxy",
+]
+
+
+def _is_git_proxy_enabled() -> bool:
+    """
+    检查是否应启用 GIT 代理。
+
+    优先级：
+      1. 环境变量 OPENWIKI_GIT_PROXY=true 显式启用（开发者后端配置，对前端透明）
+      2. 环境变量 https_proxy/http_proxy 已设置时自动启用（兼容模式）
+
+    Returns:
+        bool: 是否启用代理
+    """
+    # 显式配置优先：OPENWIKI_GIT_PROXY=true/false
+    explicit = os.environ.get("OPENWIKI_GIT_PROXY", "")
+    if explicit.lower() in ("true", "1", "t"):
+        logger.info("环境变量 OPENWIKI_GIT_PROXY=true，已启用 GIT 代理")
+        return True
+    if explicit.lower() in ("false", "0", "f", ""):
+        if explicit.lower() in ("false", "0", "f"):
+            logger.info("环境变量 OPENWIKI_GIT_PROXY=false，已禁用 GIT 代理")
+        return False
+
+    # 兼容模式：如果设置了 https_proxy 等环境变量，自动启用
+    for var_name in _PROXY_ENV_VARS:
+        if os.environ.get(var_name):
+            logger.info(f"检测到代理环境变量 {var_name}，自动启用 GIT 代理")
+            return True
+
+    return False
+
+
+def _resolve_proxy_url() -> Optional[str]:
+    """
+    从环境变量中解析代理 URL。
+
+    优先级: HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy > ALL_PROXY > all_proxy
+
+    Returns:
+        Optional[str]: 代理 URL，如果未设置任何代理环境变量则返回 None
+    """
+    for var_name in _PROXY_ENV_VARS:
+        value = os.environ.get(var_name)
+        if value:
+            logger.info(f"从环境变量 {var_name} 读取代理: {value}")
+            return value
+    return None
+
+
+def _build_git_clone_command(
+    auth_url: str,
+    local_path: str,
+    use_proxy: Optional[bool] = None,
+) -> list[str]:
+    """
+    构建 git clone 命令，可选地包含代理配置。
+
+    Args:
+        auth_url: 带认证信息的仓库 URL
+        local_path: 本地目标路径
+        use_proxy:
+            - True: 强制启用代理
+            - False: 强制禁用代理
+            - None: 自动检测（检查 OPENWIKI_GIT_PROXY 环境变量和代理环境变量）
+
+    Returns:
+        list[str]: git clone 命令参数列表
+    """
+    cmd = ["git", "clone", "--depth=1"]
+
+    # 确定是否启用代理
+    if use_proxy is None:
+        use_proxy = _is_git_proxy_enabled()
+
+    if use_proxy:
+        proxy_url = _resolve_proxy_url()
+        if proxy_url:
+            # 使用 git -c 选项设置代理，不影响全局 git 配置
+            cmd.insert(1, "-c")
+            cmd.insert(2, f"http.proxy={proxy_url}")
+            cmd.insert(3, "-c")
+            cmd.insert(4, f"https.proxy={proxy_url}")
+            logger.info(f"已启用代理: {proxy_url}")
+        else:
+            logger.warning(
+                "代理已启用但未找到代理环境变量。"
+                "请设置 HTTPS_PROXY、HTTP_PROXY 或 ALL_PROXY 环境变量。"
+            )
+
+    cmd.extend([auth_url, local_path])
+    return cmd
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # 仓库下载
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -27,6 +130,7 @@ def download_repo(
     local_path: str,
     repo_type: Optional[str] = None,
     access_token: Optional[str] = None,
+    use_proxy: Optional[bool] = None,
 ) -> str:
     """
     下载仓库到本地。
@@ -36,6 +140,13 @@ def download_repo(
         local_path: 本地路径
         repo_type: 仓库类型 (github, gitlab, bitbucket, gitee)
         access_token: 访问令牌
+        use_proxy:
+            - True: 强制启用代理
+            - False: 强制禁用代理
+            - None（默认）: 自动检测，规则：
+                1. OPENWIKI_GIT_PROXY=true → 启用
+                2. 环境变量 https_proxy/http_proxy 已设置 → 启用
+                3. 否则 → 禁用
 
     返回:
         str: 本地路径
@@ -57,9 +168,13 @@ def download_repo(
         else:
             auth_url = repo_url
 
+        # 构建 git clone 命令（自动检测代理配置）
+        git_cmd = _build_git_clone_command(auth_url, local_path, use_proxy)
+
         # 执行 git clone
+        logger.debug(f"执行命令: {' '.join(git_cmd)}")
         result = subprocess.run(
-            ["git", "clone", "--depth=1", auth_url, local_path],
+            git_cmd,
             capture_output=True,
             text=True,
             timeout=300,  # 5 分钟超时

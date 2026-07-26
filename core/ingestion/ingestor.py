@@ -32,6 +32,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from core.config import get_adalflow_default_root_path
 from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional
 
@@ -68,7 +69,7 @@ logger = logging.getLogger("core.ingestion.ingestor")
 # ============================================================
 
 # 所有克隆的仓库统一存储在此目录下
-DATA_SOURCE_ROOT = r"D:\ProgramFile2_OR\Python_Study_System\OpenStudy\DATA_SOURCE"
+DATA_SOURCE_ROOT = get_adalflow_default_root_path()
 REPOS_DIR = os.path.join(DATA_SOURCE_ROOT, "repos")
 
 
@@ -106,6 +107,7 @@ class DataIngestor:
         included_files: Optional[List[str]] = None,
         local_path: Optional[str] = None,
         token: Optional[str] = None,
+        use_proxy: Optional[bool] = None,
     ):
         """
         Args:
@@ -117,6 +119,10 @@ class DataIngestor:
             included_dirs: 包含的目录列表
             included_files: 包含的文件列表
             local_path: 本地路径（如果已克隆，可指定）
+            use_proxy:
+                - True: 强制启用代理
+                - False: 强制禁用代理
+                - None（默认）: 自动检测（检查 OPENWIKI_GIT_PROXY 环境变量）
         """
         if not repo_url and not local_path:
             raise ValueError("必须提供 repo_url 或 local_path 其中之一")
@@ -130,6 +136,7 @@ class DataIngestor:
         self.included_files = included_files
         self.local_path = local_path
         self.token = token
+        self.use_proxy = use_proxy
 
         # 提取仓库名：优先从 repo_url，其次从 local_path
         self.repo_name = self._extract_repo_name(repo_url) if repo_url else self._extract_name_from_path(local_path)
@@ -177,15 +184,17 @@ class DataIngestor:
         下载/复制仓库到 DATA_SOURCE/repos/ 目录。
 
         行为：
-          - 如果提供了 local_path，将其复制到 DATA_SOURCE/repos/{repo_name} 统一管理
-          - 如果提供了 repo_url，执行 git clone 到 DATA_SOURCE/repos/{repo_name}
+          - 如果提供了 local_path，将其复制到 DATA_SOURCE/repos/{owner}-{repo_name} 统一管理
+          - 如果提供了 repo_url，执行 git clone 到 DATA_SOURCE/repos/{owner_name}-{repo_name}
           - 如果目标路径已存在且非空，跳过操作直接使用
 
         Returns:
             str: 本地路径（统一在 DATA_SOURCE/repos/ 下）
         """
         # 统一目标路径
-        default_path = os.path.join(REPOS_DIR, self.repo_name)
+        owner_name = self._extract_owner()
+        store_repo_name = f"{owner_name}-{self.repo_name}"
+        default_path = os.path.join(REPOS_DIR, store_repo_name)
 
         # 情况 A：目标路径已存在且非空 → 直接使用
         if os.path.exists(default_path) and os.listdir(default_path):
@@ -193,7 +202,7 @@ class DataIngestor:
             self.repo_local_path = default_path
             return self.repo_local_path
 
-        # 情况 B：用户提供了 local_path → 复制到统一目录
+        # 情况 B：用户提供了 local_path → 复制到统一目录 #BUG:当用户输入一个 local_path 的时候，实际上应该是将用户电脑上本地项目复制(上传)到服务器上
         if self.local_path and os.path.exists(self.local_path):
             logger.info(f"复制本地项目到统一目录: {self.local_path} → {default_path}")
             shutil.copytree(self.local_path, default_path, symlinks=False, ignore_dangling_symlinks=True)
@@ -205,11 +214,13 @@ class DataIngestor:
         if self.repo_url:
             logger.info(f"下载仓库到: {default_path}")
             logger.info(f"仓库 URL: {self.repo_url}")
+            logger.info(f"代理状态: {'已启用' if self.use_proxy else '已禁用'}")
             self.repo_local_path = download_repo(
                 repo_url=self.repo_url,
                 local_path=default_path,
                 repo_type=self.repo_type,
                 access_token=self.access_token,
+                use_proxy=self.use_proxy,
             )
             logger.info(f"仓库下载完成: {self.repo_local_path}")
             return self.repo_local_path
@@ -456,6 +467,7 @@ def run_ingestion(
     included_dirs: Optional[List[str]] = None,
     included_files: Optional[List[str]] = None,
     local_path: Optional[str] = None,
+    use_proxy: Optional[bool] = None,
 ) -> Optional[str]:
     """
     便捷函数 — 执行完整的数据摄取流程。
@@ -469,6 +481,7 @@ def run_ingestion(
         included_dirs: 包含的目录
         included_files: 包含的文件
         local_path: 本地路径
+        use_proxy: 代理设置（True=启用, False=禁用, None=自动检测）
 
     Returns:
         Optional[str]: project_id
@@ -482,6 +495,7 @@ def run_ingestion(
         included_dirs=included_dirs,
         included_files=included_files,
         local_path=local_path,
+        use_proxy=use_proxy,
     )
     return ingestor.run()
 

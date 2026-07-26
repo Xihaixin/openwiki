@@ -188,13 +188,28 @@ class BaseFlow:
         language: str = "zh",
         use_database: bool = True,
         local_path: Optional[str] = None,
+        use_proxy: Optional[bool] = None,
     ):
+        """
+        Args:
+            repo_url: 仓库 URL
+            provider: LLM 提供者
+            model: 模型名称
+            language: 语言代码
+            use_database: 是否使用数据库
+            local_path: 本地仓库路径
+            use_proxy:
+                - True: 强制启用代理
+                - False: 强制禁用代理
+                - None（默认）: 自动检测（检查 OPENWIKI_GIT_PROXY 环境变量）
+        """
         self.repo_url = repo_url
         self.provider = provider
         self.model = model
         self.language = language
         self.use_database = use_database
         self.local_path = local_path
+        self.use_proxy = use_proxy
 
         # 解析仓库信息
         repo_info = parse_repo_url(repo_url)
