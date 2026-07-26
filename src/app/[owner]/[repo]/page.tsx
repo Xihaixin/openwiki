@@ -257,6 +257,9 @@ export default function RepoWikiPage() {
     setPagesInProgress(new Set());
     setLoadingMessage('Starting wiki generation...');
 
+    // 创建 AbortController 用于在收到 error 事件时优雅终止 SSE 流
+    const abortController = new AbortController();
+
     try {
       // 通过 Next.js API Route 代理调用后端，避免 CORS 问题
       await fetchSSEStream(
@@ -344,12 +347,21 @@ export default function RepoWikiPage() {
             }
 
             case 'error': {
-              throw new Error((event.data.message as string) || 'Wiki generation failed');
+              // 直接设置错误状态，同时中止 SSE 流读取
+              setError((event.data.message as string) || 'Wiki generation failed');
+              setIsLoading(false);
+              abortController.abort();
+              return;
             }
           }
         },
+        abortController.signal,
       );
     } catch (err) {
+      // AbortError 是主动调用 abortController.abort() 产生的，不是真正的错误
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
       console.error('[generateWikiViaSSE] Failed:', err);
       setError(err instanceof Error ? err.message : 'Wiki generation failed');
       setIsLoading(false);

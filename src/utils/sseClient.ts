@@ -83,15 +83,21 @@ export async function fetchSSEStream(
         const dataMatch = block.match(/^data: (.+)$/m);
 
         if (eventMatch && dataMatch) {
+          // 先解析 JSON，如果解析失败只记录警告，不中断流
+          let parsedData: Record<string, unknown>;
           try {
-            const event: SSEEvent = {
-              event: eventMatch[1].trim(),
-              data: JSON.parse(dataMatch[1].trim()),
-            };
-            onEvent(event);
+            parsedData = JSON.parse(dataMatch[1].trim());
           } catch (parseErr) {
             console.warn('[sseClient] Failed to parse SSE data chunk:', dataMatch[1], parseErr);
+            continue;
           }
+
+          // 构造事件对象后调用回调，onEvent 中的错误会自然向上传播
+          const event: SSEEvent = {
+            event: eventMatch[1].trim(),
+            data: parsedData,
+          };
+          onEvent(event);
         }
       }
     }
