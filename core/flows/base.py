@@ -120,7 +120,7 @@ def load_configs() -> Dict[str, Any]:
 
 def get_cache_key(
     owner: str, repo: str, repo_type: str,
-    language: str, comprehensive: bool = True,
+    language: str, comprehensive: bool = False,
 ) -> str:
     """
     生成 Wiki 缓存键。
@@ -128,6 +128,10 @@ def get_cache_key(
     对应前端 page.tsx 中的 getCacheKey() 函数。
     """
     mode = "comprehensive" if comprehensive else "concise"
+    if "_" in owner:
+        owner = owner.replace("_","-")
+    if "_" in repo:
+        repo = repo.replace("_","-")
     return f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}_{mode}"
 
 

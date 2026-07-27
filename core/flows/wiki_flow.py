@@ -65,7 +65,7 @@ class WikiGenerationFlow(BaseFlow):
         provider: str = "dashscope",
         model: str = "qwen-plus",
         language: str = "zh",
-        comprehensive: bool = True,
+        comprehensive: bool = False,
         use_database: bool = True,
         local_path: Optional[str] = None,
         use_proxy: Optional[bool] = None,

@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from core.config import WIKI_CACHE_DIR
+from core.flows.base import get_cache_key
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -112,6 +113,7 @@ class WikiCacheRequest(BaseModel):
     """Wiki 缓存请求"""
     repo: RepoInfo
     language: str
+    comprehensive: bool
     wiki_structure: WikiStructureModel
     generated_pages: Dict[str, WikiPage]
     provider: str
@@ -382,15 +384,16 @@ app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
 # ============================================================
 
 
-def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str) -> str:
+def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool) -> str:
     """生成 Wiki 缓存文件路径"""
-    filename = f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
+    repo_cache_info = get_cache_key(owner,repo,repo_type,language,comprehensive)
+    filename = f"{repo_cache_info}.json"
     return os.path.join(WIKI_CACHE_DIR, filename)
 
 
-async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) -> Optional[WikiCacheData]:
+async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool = False) -> Optional[WikiCacheData]:
     """从文件系统读取 Wiki 缓存"""
-    cache_path = get_wiki_cache_path(owner, repo, repo_type, language)
+    cache_path = get_wiki_cache_path(owner, repo, repo_type, language, comprehensive)
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -404,7 +407,7 @@ async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) 
 
 async def save_wiki_cache(data: WikiCacheRequest) -> bool:
     """保存 Wiki 缓存到文件系统"""
-    cache_path = get_wiki_cache_path(data.repo.owner, data.repo.repo, data.repo.type, data.language)
+    cache_path = get_wiki_cache_path(data.repo.owner, data.repo.repo, data.repo.type, data.language, data.comprehensive)
     logger.info(f"Attempting to save wiki cache. Path: {cache_path}")
     try:
         payload = WikiCacheData(
