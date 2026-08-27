@@ -913,7 +913,7 @@ Return ONLY valid XML with this exact structure:
         将生成的 Wiki 页面持久化到 wiki_pages 表。
 
         使用 WikiPageRepository.upsert() 写入每条页面记录，
-        (project_id, page_slug, language) 唯一约束确保幂等性。
+        (project_id, page_slug, language, is_comprehensive) 唯一约束确保幂等性。
 
         Returns:
             int: 保存的页面数

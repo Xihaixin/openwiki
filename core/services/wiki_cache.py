@@ -12,7 +12,8 @@ core.services.wiki_cache — Wiki 缓存业务服务
 
 依赖：
   - infra.cache.base       — WikiCacheStorage 抽象接口
-  - infra.cache.filesystem — 文件系统实现（当前默认）
+  - infra.cache.filesystem — 文件系统实现（CACHE_BACKEND=filesystem，默认）
+  - infra.cache.wiki_cache — PG+Redis 双层缓存实现（CACHE_BACKEND=db_redis）
   - infra.db.repository    — 项目仓库数据访问
 """
 
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from infra.cache.base import WikiCacheStorage
 from infra.cache.filesystem import FileSystemWikiCacheStorage
+from infra.config.settings import settings
 from infra.db.repository import ProjectRepository
 
 
@@ -27,8 +29,15 @@ class WikiCacheService:
     """Wiki 缓存业务服务"""
 
     def __init__(self, storage: Optional[WikiCacheStorage] = None):
-        # 默认文件系统实现（行为向后兼容）；生产形态切换为 DbRedisWikiCacheStorage()
-        self._storage = storage or FileSystemWikiCacheStorage()
+        # 按 CACHE_BACKEND 配置选择存储实现：filesystem（默认，向后兼容）| db_redis（生产形态）
+        if storage is None:
+            if settings.cache.backend == "db_redis":
+                from infra.cache.wiki_cache import DbRedisWikiCacheStorage
+
+                storage = DbRedisWikiCacheStorage()
+            else:
+                storage = FileSystemWikiCacheStorage()
+        self._storage = storage
 
     # ── 缓存 CRUD ──────────────────────────────────────────────
 

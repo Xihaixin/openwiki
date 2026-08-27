@@ -107,15 +107,14 @@ export default function ProcessedProjects({
       return;
     }
     try {
-      const response = await fetch('/api/wiki/projects', {
+      const params = new URLSearchParams({
+        owner: project.owner,
+        repo: project.repo,
+        repo_type: project.repo_type,
+        language: project.language,
+      });
+      const response = await fetch(`/api/wiki_cache?${params.toString()}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          owner: project.owner,
-          repo: project.repo,
-          repo_type: project.repo_type,
-          language: project.language,
-        }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: response.statusText }));
