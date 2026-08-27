@@ -108,7 +108,7 @@ async def lifespan(app):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.api import api_router
+from api.routers import api_router
 from api.websocket_wiki import handle_websocket_chat
 
 app = FastAPI(
@@ -127,7 +127,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 挂载全部 HTTP 路由（api.api 聚合了 projects/wiki/chat 等）
+# 挂载全部 HTTP 路由（api.routers 聚合了 system/wiki_cache/export/local_repo/wiki/chat/meta）
 app.include_router(api_router)
 
 # 注册 WebSocket 端点
