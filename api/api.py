@@ -5,6 +5,7 @@ OpenWiki-Study API 端点
 保持与原始 deepwiki-open 前端兼容的 API 接口。
 """
 
+from ast import comprehension
 import os
 import asyncio
 import json
@@ -69,6 +70,7 @@ class ProcessedProjectEntry(BaseModel):
     repo_type: str
     submittedAt: int
     language: str
+    comprehensive: bool
 
 
 class RepoInfo(BaseModel):
@@ -384,7 +386,7 @@ app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
 # ============================================================
 
 
-def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool) -> str:
+def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool = False) -> str:
     """生成 Wiki 缓存文件路径"""
     repo_cache_info = get_cache_key(owner,repo,repo_type,language,comprehensive)
     filename = f"{repo_cache_info}.json"
@@ -448,6 +450,7 @@ async def get_cached_wiki(
     repo: str = Query(..., description="Repository name"),
     repo_type: str = Query(..., description="Repository type (e.g., github, gitlab)"),
     language: str = Query(..., description="Language of the wiki content"),
+    comprehensive: bool = Query(...,description="use comprehensive or not"),
 ):
     """获取缓存的 Wiki 数据"""
     supported_langs = configs.get("lang_config", {}).get("supported_languages", {})
@@ -455,7 +458,7 @@ async def get_cached_wiki(
         language = configs.get("lang_config", {}).get("default", "en")
 
     logger.info(f"Retrieving wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cached_data = await read_wiki_cache(owner, repo, repo_type, language)
+    cached_data = await read_wiki_cache(owner, repo, repo_type, language, comprehensive)
     if cached_data:
         return cached_data
     else:
@@ -565,8 +568,8 @@ async def get_processed_projects():
     """
     列出所有已处理的项目
 
-    从 Wiki 缓存目录中扫描缓存文件，解析项目信息。
-    同时从 PostgreSQL 数据库中获取项目列表作为补充。
+    从 PostgreSQL 数据库中获取项目列表
+
     """
     project_entries: List[ProcessedProjectEntry] = []
 
@@ -583,12 +586,18 @@ async def get_processed_projects():
                         stats = await asyncio.to_thread(os.stat, file_path)
                         parts = filename.replace("openwiki_cache_", "").replace(".json", "").split("_")
 
-                        if len(parts) >= 4:
+                        if len(parts) >= 5:
                             repo_type = parts[0]
                             owner = parts[1]
-                            language = parts[-1]
-                            repo = "_".join(parts[2:-1])
+                            mode = parts[-1]
+                            language = parts[-2]
+                            repo = parts[-3]
 
+                            if mode == "comprehensive":
+                                is_comprehensive = True
+                            elif mode == "concise":
+                                is_comprehensive = False
+                            
                             project_entries.append(
                                 ProcessedProjectEntry(
                                     id=filename,
