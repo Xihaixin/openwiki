@@ -11,8 +11,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from core.config import WIKI_CACHE_DIR
 from infra.cache.key import get_cache_key
+from infra.cache.paths import WIKI_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 

@@ -32,9 +32,9 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from core.config import get_adalflow_default_root_path
 from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional
+from infra.config.paths import get_adalflow_default_root_path
 
 # 确保项目根目录在 sys.path 中（支持直接运行或 python -m 方式运行）
 # 当使用 python -m core.ingestion.ingestor 时，__file__ 可能不可靠，
@@ -47,8 +47,9 @@ for _root in [_project_root_via_file, _project_root_via_cwd]:
         sys.path.insert(0, _root_str)
         break
 
-from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES, ADALFLOW_DIR
+from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
 from core.utils.repo import download_repo
+from infra.config.paths import ADALFLOW_DIR
 from core.utils.documents import read_all_documents
 from infra.db.repository import (
     ProjectRepository,
