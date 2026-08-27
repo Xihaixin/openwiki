@@ -10,12 +10,12 @@ deepwiki-open 集成适配器
 
 用法：
     # 方式 1: 直接使用 PgvectorRetriever
-    from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
+    from infra.integration.deepwiki_adapter import PgvectorRetriever
     retriever = PgvectorRetriever(project_id="xxx")
     results = retriever(query, k=5)
 
     # 方式 2: 使用工厂函数（底层使用 RAGEngine）
-    from rag_optimizer.integration.deepwiki_adapter import create_pgvector_rag
+    from infra.integration.deepwiki_adapter import create_pgvector_rag
     rag = create_pgvector_rag(project_id="xxx")
     results, memory = rag("查询文本")
 
@@ -35,10 +35,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
-from rag_optimizer.pipeline.ingestion import Embedder
-from rag_optimizer.retrieval.hybrid_retriever import (
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
+from infra.pipeline.ingestion import Embedder
+from infra.retrieval.hybrid_retriever import (
     HybridRetriever,
     RetrievalResult,
     RetrievalStats,

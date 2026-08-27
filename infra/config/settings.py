@@ -16,7 +16,7 @@ load_dotenv()
 # 项目路径
 # ============================================================
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # openwiki/
-RAG_OPTIMIZER_DIR = PROJECT_ROOT / "rag_optimizer"
+infra_DIR = PROJECT_ROOT / "infra"
 
 
 # ============================================================
@@ -27,7 +27,7 @@ class PostgreSQLConfig:
     """PostgreSQL + pgvector 连接配置"""
     host: str = os.getenv("PGHOST", "localhost")
     port: int = int(os.getenv("PGPORT", "5432"))
-    database: str = os.getenv("PGDATABASE", "rag_optimizer")
+    database: str = os.getenv("PGDATABASE", "infra")
     user: str = os.getenv("PGUSER", "postgres")
     password: str = os.getenv("PGPASSWORD", "postgres")
     min_connections: int = 2
@@ -158,7 +158,7 @@ class Settings:
 
     # 日志配置
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
-    log_file: str = str(PROJECT_ROOT / "config" / "logs" / "rag_optimizer.log")
+    log_file: str = str(PROJECT_ROOT / "config" / "logs" / "infra.log")
 
 
 # 全局单例

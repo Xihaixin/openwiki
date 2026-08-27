@@ -10,7 +10,7 @@ import time
 import socket
 from typing import Any, Optional
 
-from rag_optimizer.config.settings import settings
+from infra.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ import threading
 import time
 from typing import Any, Optional
 
-from rag_optimizer.config.settings import settings
+from infra.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

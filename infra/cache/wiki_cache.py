@@ -16,9 +16,10 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from rag_optimizer.cache.redis_client import redis_client
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.repository import (
+from infra.cache.redis_client import redis_client
+from infra.config.settings import settings
+from infra.db.repository import (
+    ProjectRepository,
     WikiCacheRepository,
     WikiPageRepository,
 )
@@ -270,3 +271,90 @@ class WikiCacheManager:
 
 # 全局单例
 wiki_cache_manager = WikiCacheManager()
+
+
+class DbRedisWikiCacheStorage:
+    """PostgreSQL 持久化 + Redis 运行期缓存实现（WikiCacheStorage 接口）。
+
+    说明：
+    - `wiki_caches` / `wiki_pages` 表保存的是**最终生成的 Wiki 页面与结构**
+      （持久化结果），Redis 仅作为运行期热缓存。
+    - 通过 (owner, repo, repo_type) 解析 project_id（不存在时按需创建项目记录，
+      与 core/flows/wiki_flow.py 的 get_or_create 行为一致）。
+    """
+
+    def __init__(self, manager: Optional[WikiCacheManager] = None):
+        self._manager = manager or wiki_cache_manager
+
+    # ── 内部辅助 ──────────────────────────────────────────────
+
+    def _resolve_project_id(
+        self, owner: str, repo: str, repo_type: str,
+    ) -> Optional[str]:
+        """将 (owner, repo, repo_type) 解析为 project_id"""
+        project = ProjectRepository.get_or_create(
+            name=f"{owner}/{repo}", owner=owner, repo_type=repo_type,
+        )
+        return str(project["id"]) if project else None
+
+    # ── 接口实现 ──────────────────────────────────────────────
+
+    def read(
+        self,
+        owner: str,
+        repo: str,
+        repo_type: str,
+        language: str,
+        comprehensive: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """读取已生成 Wiki（Redis → PostgreSQL）"""
+        project_id = self._resolve_project_id(owner, repo, repo_type)
+        if not project_id:
+            return None
+        return self._manager.get_cache(project_id, language)
+
+    def save(
+        self,
+        payload: Dict[str, Any],
+        language: str,
+        comprehensive: bool = False,
+    ) -> bool:
+        """保存已生成 Wiki（PostgreSQL → Redis）"""
+        repo_info = payload.get("repo") or {}
+        owner = repo_info.get("owner", "")
+        repo = repo_info.get("repo", "")
+        repo_type = repo_info.get("type", "github")
+        project_id = self._resolve_project_id(owner, repo, repo_type)
+        if not project_id:
+            return False
+        structure_json = payload.get("wiki_structure") or {}
+        try:
+            self._manager.save_cache(
+                project_id=project_id,
+                language=language,
+                structure_json=structure_json,
+                repo_owner=owner or None,
+                repo_name=repo or None,
+                repo_type=repo_type or None,
+                provider=payload.get("provider"),
+                model=payload.get("model"),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save wiki cache to DB/Redis: {e}", exc_info=True)
+            return False
+
+    def delete(self, owner: str, repo: str, repo_type: str, language: str) -> bool:
+        """删除指定 Wiki（PostgreSQL + Redis）"""
+        project_id = self._resolve_project_id(owner, repo, repo_type)
+        if not project_id:
+            return False
+        return self._manager.delete_cache(project_id, language)
+
+    def list_projects(self) -> List[Dict[str, Any]]:
+        """列出所有已处理项目（wiki_caches 表）"""
+        return [dict(r) for r in WikiCacheRepository.list_all()]
+
+
+# 生产形态实例（切换入口：api 层配置 CACHE_BACKEND=db_redis 时使用）
+db_redis_wiki_cache_storage = DbRedisWikiCacheStorage()

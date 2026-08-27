@@ -10,7 +10,7 @@
      避免分块片段覆盖完整文件内容（v1 的核心 bug）
 
 使用方法：
-    python -m rag_optimizer.migration.pkl_to_pg_v3
+    python -m infra.migration.pkl_to_pg_v3
 
 前置条件：
     1. PostgreSQL 已运行且 schema 已创建
@@ -28,9 +28,9 @@ from typing import Any, Dict, List, Optional
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
-from rag_optimizer.db.repository import (
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
+from infra.db.repository import (
     ProjectRepository,
     DocumentRepository,
     ChunkRepository,
@@ -610,7 +610,7 @@ def main():
 
     使用方法：
         1. 修改下方 pkl_path 为你的 .pkl 文件路径
-        2. 运行：python -m rag_optimizer.migration.pkl_to_pg_v3
+        2. 运行：python -m infra.migration.pkl_to_pg_v3
     """
     # ====================== 【手动填写参数】 ======================
     pkl_path = r"C:\Users\lenovo\AppData\Roaming\adalflow\databases\MathModelAgent.pkl"

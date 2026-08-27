@@ -1,5 +1,5 @@
 """
-rag_optimizer — 基于 PostgreSQL + pgvector 的透明化 RAG 系统优化
+infra — 基于 PostgreSQL + pgvector 的透明化 RAG 系统优化
 
 毕业设计项目：将 deepwiki-open 的 RAG 系统从 FAISS + pickle 升级为
 PostgreSQL + pgvector，实现数据透明化、混合检索和异步处理。

@@ -9,8 +9,8 @@ import json
 import logging
 from typing import List, Optional
 
-from rag_optimizer.cache.redis_client import redis_client
-from rag_optimizer.config.settings import settings
+from infra.cache.redis_client import redis_client
+from infra.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

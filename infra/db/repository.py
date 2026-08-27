@@ -11,8 +11,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn, async_pool
+from infra.config.settings import settings
+from infra.db.connection import sync_conn, async_pool
 
 logger = logging.getLogger(__name__)
 

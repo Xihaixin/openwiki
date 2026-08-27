@@ -3,7 +3,7 @@ requires = ["setuptools>=64.0"]
 build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.setuptools.packages.find]
-include = ["core*", "rag_optimizer*", "api*", "llm_clients*"]
+include = ["core*", "infra*", "api*", "llm_clients*"]
 namespaces = false
 
 [project]

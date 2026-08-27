@@ -15,8 +15,8 @@ core.ingestion.ingestor — 数据摄取器：代码仓库 → PostgreSQL + pgve
 设计原则：
   - 复用 core/utils/repo.py 中的 download_repo()
   - 复用 core/utils/documents.py 中的 read_all_documents()
-  - 复用 rag_optimizer/pipeline/ingestion.py 中的 IngestionPipeline
-  - 复用 rag_optimizer/db/repository.py 中的各 Repository 类
+  - 复用 infra/pipeline/ingestion.py 中的 IngestionPipeline
+  - 复用 infra/db/repository.py 中的各 Repository 类
   - 与 core/flows/ 中的各 Flow 类完全兼容，作为其前置步骤
 
 local_path 处理策略：
@@ -50,7 +50,7 @@ for _root in [_project_root_via_file, _project_root_via_cwd]:
 from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES, ADALFLOW_DIR
 from core.utils.repo import download_repo
 from core.utils.documents import read_all_documents
-from rag_optimizer.db.repository import (
+from infra.db.repository import (
     ProjectRepository,
     DocumentRepository,
     ChunkRepository,
@@ -58,7 +58,7 @@ from rag_optimizer.db.repository import (
     IngestionJobRepository,
     PipelineLogRepository,
 )
-from rag_optimizer.pipeline.ingestion import IngestionPipeline
+from infra.pipeline.ingestion import IngestionPipeline
 
 load_dotenv()
 logger = logging.getLogger("core.ingestion.ingestor")
@@ -387,7 +387,7 @@ class DataIngestor:
             # 兜底：如果 job_id 为 None（prepare 阶段失败），
             # 尝试查找该项目的最后一个 pending 任务并标记为 failed
             try:
-                from rag_optimizer.db.connection import sync_conn as _conn
+                from infra.db.connection import sync_conn as _conn
                 pending_jobs = _conn.execute(
                     """SELECT id FROM ingestion_jobs
                        WHERE project_id = %s AND status = 'pending'

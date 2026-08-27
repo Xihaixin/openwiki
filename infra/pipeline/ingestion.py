@@ -15,9 +15,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
-from rag_optimizer.db.repository import (
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
+from infra.db.repository import (
     ProjectRepository,
     DocumentRepository,
     ChunkRepository,

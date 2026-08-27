@@ -15,7 +15,7 @@ llm.py — LLM 客户端抽象
 
 依赖:
   - core.config — get_model_config
-  - rag_optimizer.config.settings — DashScope API 密钥
+  - infra.config.settings — DashScope API 密钥
 """
 
 import json
@@ -162,7 +162,7 @@ async def _call_dashscope_stream(
 ) -> AsyncGenerator[str, None]:
     """调用 DashScope (通义千问) 流式 API"""
     from openai import AsyncOpenAI
-    from rag_optimizer.config.settings import settings
+    from infra.config.settings import settings
 
     api_key = settings.embedding.dashscope_api_key
     if not api_key:

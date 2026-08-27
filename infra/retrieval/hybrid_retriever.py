@@ -14,9 +14,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
-from rag_optimizer.db.repository import (
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
+from infra.db.repository import (
     RetrievalRepository,
     compute_sha256,
     vector_to_str,

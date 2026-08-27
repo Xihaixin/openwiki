@@ -1,13 +1,13 @@
 """
-rag_optimizer 环境设置脚本
+infra 环境设置脚本
 
 一键安装依赖、初始化数据库、创建 .env 配置。
 
 用法：
-    python -m rag_optimizer.scripts.setup          # 完整设置
-    python -m rag_optimizer.scripts.setup --db-only # 仅初始化数据库
-    python -m rag_optimizer.scripts.setup --check   # 仅检查环境
-    python -m rag_optimizer.scripts.setup --clean   # 清理数据库
+    python -m infra.scripts.setup          # 完整设置
+    python -m infra.scripts.setup --db-only # 仅初始化数据库
+    python -m infra.scripts.setup --check   # 仅检查环境
+    python -m infra.scripts.setup --clean   # 清理数据库
 """
 
 import argparse
@@ -60,7 +60,7 @@ def check_postgresql():
         conn = psycopg2.connect(
             host=os.getenv("PGHOST", "localhost"),
             port=os.getenv("PGPORT", "5432"),
-            dbname=os.getenv("PGDATABASE", "rag_optimizer"),
+            dbname=os.getenv("PGDATABASE", "infra"),
             user=os.getenv("PGUSER", "postgres"),
             password=os.getenv("PGPASSWORD", "postgres"),
         )
@@ -86,7 +86,7 @@ def check_pgvector():
         conn = psycopg2.connect(
             host=os.getenv("PGHOST", "localhost"),
             port=os.getenv("PGPORT", "5432"),
-            dbname=os.getenv("PGDATABASE", "rag_optimizer"),
+            dbname=os.getenv("PGDATABASE", "infra"),
             user=os.getenv("PGUSER", "postgres"),
             password=os.getenv("PGPASSWORD", "postgres"),
         )
@@ -143,11 +143,11 @@ def create_env_file():
         warn(".env 文件已存在，跳过创建")
         return
 
-    content = """# rag_optimizer 配置
+    content = """# infra 配置
 # PostgreSQL
 PGHOST=localhost
 PGPORT=5432
-PGDATABASE=rag_optimizer
+PGDATABASE=infra
 PGUSER=postgres
 PGPASSWORD=postgres
 
@@ -182,7 +182,7 @@ def init_database():
         conn = psycopg2.connect(
             host=os.getenv("PGHOST", "localhost"),
             port=os.getenv("PGPORT", "5432"),
-            dbname=os.getenv("PGDATABASE", "rag_optimizer"),
+            dbname=os.getenv("PGDATABASE", "infra"),
             user=os.getenv("PGUSER", "postgres"),
             password=os.getenv("PGPASSWORD", "postgres"),
         )
@@ -234,7 +234,7 @@ def clean_database():
         conn = psycopg2.connect(
             host=os.getenv("PGHOST", "localhost"),
             port=os.getenv("PGPORT", "5432"),
-            dbname=os.getenv("PGDATABASE", "rag_optimizer"),
+            dbname=os.getenv("PGDATABASE", "infra"),
             user=os.getenv("PGUSER", "postgres"),
             password=os.getenv("PGPASSWORD", "postgres"),
         )
@@ -272,7 +272,7 @@ def clean_database():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="rag_optimizer 环境设置",
+        description="infra 环境设置",
     )
     parser.add_argument("--check", action="store_true", help="仅检查环境")
     parser.add_argument("--db-only", action="store_true", help="仅初始化数据库")
@@ -282,7 +282,7 @@ def main():
 
     print()
     print(f"  {Colors.BOLD}╔══════════════════════════════════════╗{Colors.END}")
-    print(f"  {Colors.BOLD}║   rag_optimizer 环境设置工具        ║{Colors.END}")
+    print(f"  {Colors.BOLD}║   infra 环境设置工具        ║{Colors.END}")
     print(f"  {Colors.BOLD}║   基于 PostgreSQL + pgvector 的 RAG ║{Colors.END}")
     print(f"  {Colors.BOLD}╚══════════════════════════════════════╝{Colors.END}")
     print()
@@ -330,7 +330,7 @@ def main():
     print()
     info("设置完成！后续步骤:")
     info("  1. 编辑 .env 文件配置 DASHSCOPE_API_KEY")
-    info("  2. 运行 python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl")
+    info("  2. 运行 python -m infra.scripts.demo --pkl-path ./gitingest.pkl")
     info("  3. 查看文档: plans/毕业设计-RAG系统优化方案_v2.md")
     print()
 

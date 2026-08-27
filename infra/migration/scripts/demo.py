@@ -1,5 +1,5 @@
 """
-rag_optimizer 端到端演示脚本
+infra 端到端演示脚本
 
 演示完整的 RAG 优化流程：
 1. 数据库初始化（建表）
@@ -9,9 +9,9 @@ rag_optimizer 端到端演示脚本
 5. 性能基准测试
 
 用法：
-    python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl
-    python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl --skip-migration
-    python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl --retrieval-only
+    python -m infra.scripts.demo --pkl-path ./gitingest.pkl
+    python -m infra.scripts.demo --pkl-path ./gitingest.pkl --skip-migration
+    python -m infra.scripts.demo --pkl-path ./gitingest.pkl --retrieval-only
 """
 
 import argparse
@@ -72,8 +72,8 @@ def step_check_environment() -> bool:
 
     # 检查 PostgreSQL 连接
     try:
-        from rag_optimizer.config.settings import settings  # noqa: F401
-        from rag_optimizer.db.connection import sync_conn
+        from infra.config.settings import settings  # noqa: F401
+        from infra.db.connection import sync_conn
 
         conn = sync_conn
         result = conn.execute("SELECT version();")
@@ -85,7 +85,7 @@ def step_check_environment() -> bool:
 
     # 检查 pgvector 扩展
     try:
-        from rag_optimizer.db.connection import sync_conn
+        from infra.db.connection import sync_conn
         result = sync_conn.execute(
             "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
         )
@@ -98,7 +98,7 @@ def step_check_environment() -> bool:
 
     # 检查 Redis 连接
     try:
-        from rag_optimizer.cache.redis_client import redis_client
+        from infra.cache.redis_client import redis_client
         if redis_client.ping():
             print_result("Redis 连接", "正常")
         else:
@@ -114,7 +114,7 @@ def step_init_schema() -> bool:
     print_header("步骤 2: 初始化数据库 Schema")
 
     try:
-        from rag_optimizer.db.connection import sync_conn
+        from infra.db.connection import sync_conn
 
         sql_path = Path(__file__).resolve().parent / "001_create_schema.sql"
         if not sql_path.exists():
@@ -150,7 +150,7 @@ def step_migrate_data(pkl_path: str) -> Optional[str]:
         return None
 
     try:
-        from rag_optimizer.migration.pkl_to_pg import migrate_pkl_to_postgresql, verify_migration
+        from infra.migration.pkl_to_pg import migrate_pkl_to_postgresql, verify_migration
 
         # 执行迁移
         project_id = migrate_pkl_to_postgresql(pkl_path)
@@ -178,7 +178,7 @@ def step_hybrid_retrieval(project_id: str) -> bool:
     print_header("步骤 4: 混合检索演示")
 
     try:
-        from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
+        from infra.integration.deepwiki_adapter import PgvectorRetriever
 
         retriever = PgvectorRetriever(project_id=project_id)
 
@@ -281,7 +281,7 @@ def step_performance_benchmark(project_id: str) -> bool:
     print_header("步骤 6: 性能基准测试")
 
     try:
-        from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
+        from infra.integration.deepwiki_adapter import PgvectorRetriever
         import random
 
         retriever = PgvectorRetriever(project_id=project_id)
@@ -343,18 +343,18 @@ def step_performance_benchmark(project_id: str) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="rag_optimizer 端到端演示",
+        description="infra 端到端演示",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
   # 完整演示
-  python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl
+  python -m infra.scripts.demo --pkl-path ./gitingest.pkl
 
   # 仅检索演示（跳过迁移）
-  python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl --skip-migration
+  python -m infra.scripts.demo --pkl-path ./gitingest.pkl --skip-migration
 
   # 仅检索测试
-  python -m rag_optimizer.scripts.demo --pkl-path ./gitingest.pkl --retrieval-only
+  python -m infra.scripts.demo --pkl-path ./gitingest.pkl --retrieval-only
         """,
     )
     parser.add_argument(
@@ -382,7 +382,7 @@ def main():
 
     print()
     print("  [1m[37m╔══════════════════════════════════════════════════╗[0m")
-    print("  [1m[37m║       rag_optimizer - RAG 增强检索演示            ║[0m")
+    print("  [1m[37m║       infra - RAG 增强检索演示            ║[0m")
     print("  [1m[37m║   基于 PostgreSQL + pgvector 的透明化 RAG         ║[0m")
     print("  [1m[37m╚══════════════════════════════════════════════════╝[0m")
     print()
@@ -402,7 +402,7 @@ def main():
         if not project_id:
             # 尝试从数据库获取最新项目
             try:
-                from rag_optimizer.db.connection import sync_conn
+                from infra.db.connection import sync_conn
                 result = sync_conn.execute(
                     "SELECT id FROM projects ORDER BY created_at DESC LIMIT 1"
                 )
@@ -444,7 +444,7 @@ def main():
     print()
     print("  后续步骤:")
     print("  1. 配置 DASHSCOPE_API_KEY 环境变量以启用 LLM 生成")
-    print("  2. 运行 python -m rag_optimizer.migration.pkl_to_pg --help")
+    print("  2. 运行 python -m infra.migration.pkl_to_pg --help")
     print("  3. 集成到 deepwiki-open (见阶段5)")
     print()
 

@@ -5,7 +5,6 @@ OpenWiki-Study API 端点
 保持与原始 deepwiki-open 前端兼容的 API 接口。
 """
 
-from ast import comprehension
 import os
 import asyncio
 import json
@@ -13,37 +12,28 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from core.config import WIKI_CACHE_DIR
-from core.flows.base import get_cache_key
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
-from rag_optimizer.db.repository import ProjectRepository
+from infra.cache.base import WikiCacheStorage
+from infra.cache.filesystem import FileSystemWikiCacheStorage
+from infra.cache.key import get_cache_key
+from infra.db.repository import ProjectRepository
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# FastAPI 应用初始化
+# API 路由定义（app 由 api/main.py 创建并挂载）
 # ============================================================
 
-app = FastAPI(
-    title="OpenWiki API (RAG Optimized)",
-    description="基于 PostgreSQL + pgvector 的 deepwiki-open 重构版 API",
-    version="2.0.0",
-)
+api_router = APIRouter()
 
-# CORS 配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Wiki 数据存储实例（当前默认文件系统实现，行为向后兼容；
+# 切换为 PG+Redis 生产形态只需改为 DbRedisWikiCacheStorage()）
+wiki_storage: WikiCacheStorage = FileSystemWikiCacheStorage()
 
 
 # ============================================================
@@ -159,28 +149,28 @@ class AuthorizationConfig(BaseModel):
 # ============================================================
 
 
-@app.get("/lang/config")
+@api_router.get("/lang/config")
 async def get_lang_config():
     """获取语言配置"""
-    return configs.get("lang_config", {
+    return configs.get("lang", {
         "supported_languages": {"en": "English"},
         "default": "zh",
     })
 
 
-@app.get("/auth/status")
+@api_router.get("/auth/status")
 async def get_auth_status():
     """检查是否需要认证"""
     return {"auth_required": WIKI_AUTH_MODE}
 
 
-@app.post("/auth/validate")
+@api_router.post("/auth/validate")
 async def validate_auth_code(request: AuthorizationConfig):
     """验证授权码"""
     return {"success": WIKI_AUTH_CODE == request.code}
 
 
-@app.get("/models/config", response_model=ModelConfig)
+@api_router.get("/models/config", response_model=ModelConfig)
 async def get_model_config():
     """
     获取可用的模型提供者和模型列表
@@ -224,7 +214,7 @@ async def get_model_config():
         )
 
 
-@app.post("/export/wiki")
+@api_router.post("/export/wiki")
 async def export_wiki(request: WikiExportRequest):
     """
     导出 Wiki 内容为 Markdown 或 JSON
@@ -263,7 +253,7 @@ async def export_wiki(request: WikiExportRequest):
         raise HTTPException(status_code=500, detail=error_msg)
 
 
-@app.get("/local_repo/structure")
+@api_router.get("/local_repo/structure")
 async def get_local_repo_structure(path: str = Query(None, description="Path to local repository")):
     """返回本地仓库的文件树和 README 内容"""
     if not path:
@@ -372,79 +362,21 @@ from api.simple_chat import router as chat_router
 from api.websocket_wiki import handle_websocket_chat
 
 # 注册 sse 流式 wiki 生成路由
-app.include_router(wiki_router)
+api_router.include_router(wiki_router)
 
 # 注册聊天路由 sse 流式
-app.include_router(chat_router)
+api_router.include_router(chat_router)
 
-# 注册 WebSocket 端点
-app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
-
-
-# ============================================================
-# Wiki 缓存辅助函数
-# ============================================================
-
-
-def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool = False) -> str:
-    """生成 Wiki 缓存文件路径"""
-    repo_cache_info = get_cache_key(owner,repo,repo_type,language,comprehensive)
-    filename = f"{repo_cache_info}.json"
-    return os.path.join(WIKI_CACHE_DIR, filename)
-
-
-async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str, comprehensive: bool = False) -> Optional[WikiCacheData]:
-    """从文件系统读取 Wiki 缓存"""
-    cache_path = get_wiki_cache_path(owner, repo, repo_type, language, comprehensive)
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return WikiCacheData(**data)
-        except Exception as e:
-            logger.error(f"Error reading wiki cache from {cache_path}: {e}")
-            return None
-    return None
-
-
-async def save_wiki_cache(data: WikiCacheRequest) -> bool:
-    """保存 Wiki 缓存到文件系统"""
-    cache_path = get_wiki_cache_path(data.repo.owner, data.repo.repo, data.repo.type, data.language, data.comprehensive)
-    logger.info(f"Attempting to save wiki cache. Path: {cache_path}")
-    try:
-        payload = WikiCacheData(
-            wiki_structure=data.wiki_structure,
-            generated_pages=data.generated_pages,
-            repo=data.repo,
-            provider=data.provider,
-            model=data.model,
-        )
-        try:
-            payload_json = payload.model_dump_json()
-            payload_size = len(payload_json.encode("utf-8"))
-            logger.info(f"Payload prepared for caching. Size: {payload_size} bytes.")
-        except Exception as ser_e:
-            logger.warning(f"Could not serialize payload for size logging: {ser_e}")
-
-        logger.info(f"Writing cache file to: {cache_path}")
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(payload.model_dump(), f, indent=2)
-        logger.info(f"Wiki cache successfully saved to {cache_path}")
-        return True
-    except IOError as e:
-        logger.error(f"IOError saving wiki cache to {cache_path}: {e.strerror} (errno: {e.errno})", exc_info=True)
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error saving wiki cache to {cache_path}: {e}", exc_info=True)
-        return False
+# WebSocket 端点由 api/main.py 注册（app 唯一入口）
+# 此处保留 handle_websocket_chat 导入供 main.py 使用
 
 
 # ============================================================
-# Wiki 缓存 API 端点
+# Wiki 缓存 API 端点（存储实现收敛到 infra.cache，经 wiki_storage 接口调用）
 # ============================================================
 
 
-@app.get("/api/wiki_cache", response_model=Optional[WikiCacheData])
+@api_router.get("/api/wiki_cache", response_model=Optional[WikiCacheData])
 async def get_cached_wiki(
     owner: str = Query(..., description="Repository owner"),
     repo: str = Query(..., description="Repository name"),
@@ -453,38 +385,45 @@ async def get_cached_wiki(
     comprehensive: bool = Query(...,description="use comprehensive or not"),
 ):
     """获取缓存的 Wiki 数据"""
-    supported_langs = configs.get("lang_config", {}).get("supported_languages", {})
+    supported_langs = configs.get("lang", {}).get("supported_languages", {})
     if language not in supported_langs:
-        language = configs.get("lang_config", {}).get("default", "en")
+        language = configs.get("lang", {}).get("default", "en")
 
     logger.info(f"Retrieving wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cached_data = await read_wiki_cache(owner, repo, repo_type, language, comprehensive)
+    cached_data = wiki_storage.read(owner, repo, repo_type, language, comprehensive)
     if cached_data:
-        return cached_data
+        return WikiCacheData(**cached_data)
     else:
         logger.info(f"Wiki cache not found for {owner}/{repo} ({repo_type}), lang: {language}")
         return None
 
 
-@app.post("/api/wiki_cache")
+@api_router.post("/api/wiki_cache")
 async def store_wiki_cache(request_data: WikiCacheRequest):
     """存储 Wiki 缓存"""
-    supported_langs = configs.get("lang_config", {}).get("supported_languages", {})
+    supported_langs = configs.get("lang", {}).get("supported_languages", {})
     if request_data.language not in supported_langs:
-        request_data.language = configs.get("lang_config", {}).get("default", "en")
+        request_data.language = configs.get("lang", {}).get("default", "en")
 
     logger.info(
         f"Saving wiki cache for {request_data.repo.owner}/{request_data.repo.repo} "
         f"({request_data.repo.type}), lang: {request_data.language}"
     )
-    success = await save_wiki_cache(request_data)
+    payload = WikiCacheData(
+        wiki_structure=request_data.wiki_structure,
+        generated_pages=request_data.generated_pages,
+        repo=request_data.repo,
+        provider=request_data.provider,
+        model=request_data.model,
+    ).model_dump()
+    success = wiki_storage.save(payload, language=request_data.language, comprehensive=request_data.comprehensive)
     if success:
         return {"message": "Wiki cache saved successfully"}
     else:
         raise HTTPException(status_code=500, detail="Failed to save wiki cache")
 
 
-@app.delete("/api/wiki_cache")
+@api_router.delete("/api/wiki_cache")
 async def delete_wiki_cache(
     owner: str = Query(..., description="Repository owner"),
     repo: str = Query(..., description="Repository name"),
@@ -493,7 +432,7 @@ async def delete_wiki_cache(
     authorization_code: Optional[str] = Query(None, description="Authorization code"),
 ):
     """删除 Wiki 缓存"""
-    supported_langs = configs.get("lang_config", {}).get("supported_languages", {})
+    supported_langs = configs.get("lang", {}).get("supported_languages", {})
     if language not in supported_langs:
         raise HTTPException(status_code=400, detail="Language is not supported")
 
@@ -503,18 +442,9 @@ async def delete_wiki_cache(
             raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(f"Deleting wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cache_path = get_wiki_cache_path(owner, repo, repo_type, language)
-
-    if os.path.exists(cache_path):
-        try:
-            os.remove(cache_path)
-            logger.info(f"Successfully deleted wiki cache: {cache_path}")
-            return {"message": f"Wiki cache for {owner}/{repo} ({language}) deleted successfully"}
-        except Exception as e:
-            logger.error(f"Error deleting wiki cache {cache_path}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to delete wiki cache: {str(e)}")
+    if wiki_storage.delete(owner, repo, repo_type, language):
+        return {"message": f"Wiki cache for {owner}/{repo} ({language}) deleted successfully"}
     else:
-        logger.warning(f"Wiki cache not found, cannot delete: {cache_path}")
         raise HTTPException(status_code=404, detail="Wiki cache not found")
 
 
@@ -523,7 +453,7 @@ async def delete_wiki_cache(
 # ============================================================
 
 
-@app.get("/health")
+@api_router.get("/health")
 async def health_check():
     """健康检查端点"""
     return {
@@ -534,19 +464,21 @@ async def health_check():
     }
 
 
-@app.get("/")
+@api_router.get("/")
 async def root():
     """根端点 — 列出所有可用端点"""
     endpoints = {}
-    for route in app.routes:
-        if hasattr(route, "methods") and hasattr(route, "path"):
-            if route.path in ["/openapi.json", "/docs", "/redoc", "/favicon.ico"]:
+    for route in api_router.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if path and methods:
+            if path in ["/openapi.json", "/docs", "/redoc", "/favicon.ico"]:
                 continue
-            path_parts = route.path.strip("/").split("/")
+            path_parts = path.strip("/").split("/")
             group = path_parts[0].capitalize() if path_parts[0] else "Root"
-            method_list = list(route.methods - {"HEAD", "OPTIONS"})
+            method_list = list(methods - {"HEAD", "OPTIONS"})
             for method in method_list:
-                endpoints.setdefault(group, []).append(f"{method} {route.path}")
+                endpoints.setdefault(group, []).append(f"{method} {path}")
 
     for group in endpoints:
         endpoints[group].sort()
@@ -563,7 +495,7 @@ async def root():
 # ============================================================
 
 
-@app.get("/api/processed_projects", response_model=List[ProcessedProjectEntry])
+@api_router.get("/api/processed_projects", response_model=List[ProcessedProjectEntry])
 async def get_processed_projects():
     """
     列出所有已处理的项目
@@ -574,46 +506,25 @@ async def get_processed_projects():
     project_entries: List[ProcessedProjectEntry] = []
 
     try:
-        # 1. 从 Wiki 缓存目录扫描
-        if os.path.exists(WIKI_CACHE_DIR):
-            logger.info(f"Scanning for project cache files in: {WIKI_CACHE_DIR}")
-            filenames = await asyncio.to_thread(os.listdir, WIKI_CACHE_DIR)
-
-            for filename in filenames:
-                if filename.startswith("openwiki_cache_") and filename.endswith(".json"):
-                    file_path = os.path.join(WIKI_CACHE_DIR, filename)
-                    try:
-                        stats = await asyncio.to_thread(os.stat, file_path)
-                        parts = filename.replace("openwiki_cache_", "").replace(".json", "").split("_")
-
-                        if len(parts) >= 5:
-                            repo_type = parts[0]
-                            owner = parts[1]
-                            mode = parts[-1]
-                            language = parts[-2]
-                            repo = parts[-3]
-
-                            if mode == "comprehensive":
-                                is_comprehensive = True
-                            elif mode == "concise":
-                                is_comprehensive = False
-                            
-                            project_entries.append(
-                                ProcessedProjectEntry(
-                                    id=filename,
-                                    owner=owner,
-                                    repo=repo,
-                                    name=f"{owner}/{repo}",
-                                    repo_type=repo_type,
-                                    submittedAt=int(stats.st_mtime * 1000),
-                                    language=language,
-                                )
-                            )
-                        else:
-                            logger.warning(f"Could not parse project details from filename: {filename}")
-                    except Exception as e:
-                        logger.error(f"Error processing file {file_path}: {e}")
-                        continue
+        # 1. 从存储层扫描已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_caches 表）
+        cached_projects = await asyncio.to_thread(wiki_storage.list_projects)
+        for entry in cached_projects:
+            try:
+                project_entries.append(
+                    ProcessedProjectEntry(
+                        id=entry.get("id", ""),
+                        owner=entry.get("owner", "unknown"),
+                        repo=entry.get("repo", ""),
+                        name=entry.get("name", ""),
+                        repo_type=entry.get("repo_type", "github"),
+                        submittedAt=entry.get("submittedAt", 0),
+                        language=entry.get("language", "en"),
+                        comprehensive=entry.get("comprehensive", False),
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error processing project entry {entry.get('id')}: {e}")
+                continue
 
         # 2. 从 PostgreSQL 数据库获取项目列表作为补充
         try:

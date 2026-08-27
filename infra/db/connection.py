@@ -10,7 +10,7 @@ import logging
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any, AsyncGenerator, Generator, Optional
 
-from rag_optimizer.config.settings import settings
+from infra.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

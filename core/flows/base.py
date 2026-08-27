@@ -16,8 +16,8 @@ base.py — 业务流公共基类
   - core.utils.llm — call_llm_stream
   - core.utils.sse — parse_sse_chunk, call_llm_and_collect
   - core.utils.language — get_language_name
-  - rag_optimizer.integration.deepwiki_adapter — PgvectorRetriever
-  - rag_optimizer.db.repository — ProjectRepository
+  - infra.integration.deepwiki_adapter — PgvectorRetriever
+  - infra.db.repository — ProjectRepository
 """
 
 import os
@@ -31,8 +31,8 @@ from core.config import (
 from core.utils.llm import call_llm_stream
 from core.utils.sse import parse_sse_chunk, call_llm_and_collect
 from core.utils.language import get_language_name as _get_language_name
-from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
-from rag_optimizer.db.repository import ProjectRepository
+from infra.integration.deepwiki_adapter import PgvectorRetriever
+from infra.db.repository import ProjectRepository
 
 logger = logging.getLogger("core.flows.base")
 
@@ -116,23 +116,6 @@ def load_configs() -> Dict[str, Any]:
         configs["embedder"] = {}
 
     return configs
-
-
-def get_cache_key(
-    owner: str, repo: str, repo_type: str,
-    language: str, comprehensive: bool = False,
-) -> str:
-    """
-    生成 Wiki 缓存键。
-
-    对应前端 page.tsx 中的 getCacheKey() 函数。
-    """
-    mode = "comprehensive" if comprehensive else "concise"
-    if "_" in owner:
-        owner = owner.replace("_","-")
-    if "_" in repo:
-        repo = repo.replace("_","-")
-    return f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}_{mode}"
 
 
 def generate_file_url(file_path: str, repo_url: str, repo_type: str = "github") -> str:

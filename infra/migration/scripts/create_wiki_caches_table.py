@@ -16,8 +16,8 @@ from dotenv import load_dotenv
 # 加载 .env 文件（如果存在）
 load_dotenv()
 
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
 
 # 创建 wiki_caches 表
 create_table_sql = """

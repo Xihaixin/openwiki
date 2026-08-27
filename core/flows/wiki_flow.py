@@ -15,7 +15,7 @@ wiki_flow.py — Wiki 文档生成流
   - core.flows.base — BaseFlow 公共基类
   - core.models — WikiPage, WikiSection, WikiStructure
   - api.prompts — Prompt 模板
-  - rag_optimizer.db.repository — DocumentRepository, WikiPageRepository
+  - infra.db.repository — DocumentRepository, WikiPageRepository
   - core.ingestion.ingestor — DataIngestor（自动触发）
 """
 
@@ -28,13 +28,13 @@ from core.flows.base import (
     BaseFlow,
     call_llm_and_collect,
     generate_file_url,
-    get_cache_key,
     parse_repo_url,
     load_configs,
 )
 from core.models import WikiPage, WikiSection, WikiStructure
-from rag_optimizer.db.repository import DocumentRepository, WikiPageRepository
-from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
+from infra.cache.key import get_cache_key
+from infra.db.repository import DocumentRepository, WikiPageRepository
+from infra.integration.deepwiki_adapter import PgvectorRetriever
 
 # 数据摄取（自动触发）
 from core.ingestion.ingestor import DataIngestor

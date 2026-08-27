@@ -17,7 +17,7 @@ from pathlib import Path
 # 将项目根目录加入 sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rag_optimizer.db.connection import sync_conn
+from infra.db.connection import sync_conn
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
