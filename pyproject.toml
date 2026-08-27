@@ -3,7 +3,7 @@ requires = ["setuptools>=64.0"]
 build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.setuptools.packages.find]
-include = ["core*", "infra*", "api*", "llm_clients*"]
+include = ["core*", "infra*", "api*", "clients*"]
 namespaces = false
 
 [project]
@@ -13,7 +13,6 @@ description = "DeepWiki-open 重构版 — 基于 PostgreSQL + pgvector 的 RAG 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "adalflow>=1.1.3",
     "asyncpg>=0.31.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
