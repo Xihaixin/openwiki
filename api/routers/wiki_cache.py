@@ -23,17 +23,15 @@ from api.models import (
     WikiCacheData,
     WikiCacheRequest,
 )
-from infra.cache.base import WikiCacheStorage
-from infra.cache.filesystem import FileSystemWikiCacheStorage
-from infra.db.repository import ProjectRepository
+from core.services.wiki_cache import WikiCacheService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Wiki 数据存储实例（当前默认文件系统实现，行为向后兼容；
-# 切换为 PG+Redis 生产形态只需改为 DbRedisWikiCacheStorage()）
-wiki_storage: WikiCacheStorage = FileSystemWikiCacheStorage()
+# Wiki 缓存业务服务（内部默认文件系统实现，行为向后兼容；
+# 切换为 PG+Redis 生产形态只需替换 storage 实例，如 CACHE_BACKEND 配置）
+wiki_cache_service = WikiCacheService()
 
 
 # ============================================================
@@ -55,7 +53,7 @@ async def get_cached_wiki(
         language = configs.get("lang", {}).get("default", "en")
 
     logger.info(f"Retrieving wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cached_data = wiki_storage.read(owner, repo, repo_type, language, comprehensive)
+    cached_data = wiki_cache_service.read(owner, repo, repo_type, language, comprehensive)
     if cached_data:
         return WikiCacheData(**cached_data)
     else:
@@ -81,7 +79,7 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
         provider=request_data.provider,
         model=request_data.model,
     ).model_dump()
-    success = wiki_storage.save(payload, language=request_data.language, comprehensive=request_data.comprehensive)
+    success = wiki_cache_service.save(payload, language=request_data.language, comprehensive=request_data.comprehensive)
     if success:
         return {"message": "Wiki cache saved successfully"}
     else:
@@ -107,7 +105,7 @@ async def delete_wiki_cache(
             raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(f"Deleting wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    if wiki_storage.delete(owner, repo, repo_type, language):
+    if wiki_cache_service.delete(owner, repo, repo_type, language):
         return {"message": f"Wiki cache for {owner}/{repo} ({language}) deleted successfully"}
     else:
         raise HTTPException(status_code=404, detail="Wiki cache not found")
@@ -129,7 +127,7 @@ async def get_processed_projects():
 
     try:
         # 1. 从存储层扫描已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_caches 表）
-        cached_projects = await asyncio.to_thread(wiki_storage.list_projects)
+        cached_projects = await asyncio.to_thread(wiki_cache_service.list_storage_projects)
         for entry in cached_projects:
             try:
                 project_entries.append(
@@ -150,7 +148,7 @@ async def get_processed_projects():
 
         # 2. 从 PostgreSQL 数据库获取项目列表作为补充
         try:
-            db_projects = ProjectRepository.list_all()
+            db_projects = wiki_cache_service.list_db_projects()
             for proj in db_projects:
                 # 检查是否已存在（避免重复）
                 existing_ids = {p.id for p in project_entries}

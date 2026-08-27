@@ -5,19 +5,12 @@ deepwiki-open 集成适配器
 能够无缝切换到 pgvector 后端，而无需修改原有业务逻辑。
 
 核心功能：
-1. PgvectorRetriever — 替代 FAISSRetriever 的兼容类，用于 WikiGenerationFlow
-2. create_pgvector_rag() — 便捷工厂函数，创建兼容 adalflow RAG 接口的实例
+- PgvectorRetriever — 兼容 FAISSRetriever 接口的检索适配器，用于 WikiGenerationFlow
 
 用法：
-    # 方式 1: 直接使用 PgvectorRetriever
     from infra.integration.deepwiki_adapter import PgvectorRetriever
     retriever = PgvectorRetriever(project_id="xxx")
     results = retriever(query, k=5)
-
-    # 方式 2: 使用工厂函数（底层使用 RAGEngine）
-    from infra.integration.deepwiki_adapter import create_pgvector_rag
-    rag = create_pgvector_rag(project_id="xxx")
-    results, memory = rag("查询文本")
 
 架构定位:
     PgvectorRetriever 是一个薄适配层，核心价值是将 HybridRetriever.search()
@@ -255,80 +248,6 @@ def _create_compat_document(result: RetrievalResult) -> Any:
 
 
 # ============================================================
-# 便捷工厂函数
-# ============================================================
-
-def create_pgvector_rag(
-    project_id: str,
-    retrieval_type: str = "hybrid",
-    top_k: int = 10,
-) -> Any:
-    """
-    创建使用 pgvector 后端的 RAG 实例。
-
-    返回一个兼容 adalflow RAG 接口的对象，可以直接调用：
-        rag = create_pgvector_rag("project_id")
-        results = rag("查询文本")
-
-    底层使用 core.rag_engine.RAGEngine 进行完整的 RAG 问答流程。
-
-    Args:
-        project_id: 项目 ID
-        retrieval_type: 检索类型
-        top_k: 返回结果数
-
-    Returns:
-        PgvectorRAG 实例
-    """
-    from core.rag_engine import RAGEngine
-
-    class PgvectorRAG:
-        """
-        兼容 adalflow RAG 接口的 pgvector RAG 包装器。
-
-        底层使用 RAGEngine 进行检索 + LLM 生成 + 缓存 + qa_logs。
-        """
-
-        def __init__(self, project_id: str, retrieval_type: str, top_k: int):
-            self.project_id = project_id
-            self.retrieval_type = retrieval_type
-            self.top_k = top_k
-            self.engine = RAGEngine(project_id=project_id)
-            self.memory = lambda: {}
-
-        def __call__(self, query: str, language: str = "zh") -> Tuple[List, Dict]:
-            """
-            兼容 adalflow RAG.call 接口。
-
-            Returns:
-                (results, memory_output)
-            """
-            ctx = self.engine.answer(
-                query=query,
-                retrieval_type=self.retrieval_type,
-                top_k=self.top_k,
-                language=language,
-                use_semantic_cache=True,
-            )
-
-            # 转换为兼容格式
-            results = [_create_compat_document(r) for r in ctx.results]
-            memory_output = self.memory()
-
-            return results, memory_output
-
-        def prepare_retriever(self, *args, **kwargs):
-            """兼容接口"""
-            return True
-
-    return PgvectorRAG(
-        project_id=project_id,
-        retrieval_type=retrieval_type,
-        top_k=top_k,
-    )
-
-
-# ============================================================
 # CLI 入口
 # ============================================================
 
@@ -339,7 +258,6 @@ def main():
     parser = argparse.ArgumentParser(description="deepwiki-open 集成测试")
     parser.add_argument("--project-id", required=True, help="项目 ID")
     parser.add_argument("--query", default="这个项目的主要功能是什么？", help="测试查询")
-    parser.add_argument("--mode", choices=["direct", "factory"], default="direct")
 
     args = parser.parse_args()
 
@@ -348,23 +266,13 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    if args.mode == "factory":
-        # 工厂模式（使用 RAGEngine）
-        logger.info("Testing factory mode (RAGEngine)...")
-        rag = create_pgvector_rag(project_id=args.project_id)
-        results, memory = rag(args.query)
-        logger.info(f"Results: {len(results)} documents")
-        for r in results[:3]:
-            logger.info(f"  - {r.meta.get('file_path', 'unknown')}: {r.text[:100]}...")
-
-    else:
-        # 直接模式（使用 PgvectorRetriever）
-        logger.info("Testing direct mode (PgvectorRetriever)...")
-        retriever = PgvectorRetriever(project_id=args.project_id)
-        results = retriever(args.query, k=5)
-        logger.info(f"Results: {len(results)} documents")
-        for r in results[:3]:
-            logger.info(f"  - {r.meta.get('file_path', 'unknown')}: {r.text[:100]}...")
+    # 直接模式（使用 PgvectorRetriever）
+    logger.info("Testing direct mode (PgvectorRetriever)...")
+    retriever = PgvectorRetriever(project_id=args.project_id)
+    results = retriever(args.query, k=5)
+    logger.info(f"Results: {len(results)} documents")
+    for r in results[:3]:
+        logger.info(f"  - {r.meta.get('file_path', 'unknown')}: {r.text[:100]}...")
 
 
 if __name__ == "__main__":
