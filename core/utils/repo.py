@@ -310,3 +310,65 @@ def get_file_content(
         return get_bitbucket_file_content(repo_url, file_path, access_token)
     else:
         return get_github_file_content(repo_url, file_path, access_token)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 仓库 URL 规范化与匹配（#11 修复）
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def normalize_repo_url(url: str) -> str:
+    """
+    规范化仓库 URL，用于同一仓库的等价比较（替代宽松的子串包含匹配）。
+
+    处理项:
+      - 去首尾空白与尾斜杠
+      - 去认证信息（user:pass@）
+      - 去 .git 后缀
+      - host 与 path 统一小写（域名不区分大小写）
+      - 本地路径（file:// 或非 URL 形式）仅去空白/尾斜杠，保留原大小写，
+        避免 macOS（区分大小写）上误判不同目录为同一仓库
+
+    Returns:
+        str: 规范化后的 URL；空串表示输入为空或无法规范化
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+    url = url.rstrip("/")
+
+    # 本地路径：file:// 或不含协议的绝对/相对路径
+    if url.startswith("file://"):
+        return "file://" + url[len("file://"):].lstrip("/")
+    if "://" not in url:
+        return url
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        # 无法解析出 host（格式异常），退化处理
+        return url.lower()
+
+    path = parsed.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    return f"{host}{path.lower()}"
+
+
+def repo_urls_match(url_a: str, url_b: str) -> bool:
+    """
+    判断两个仓库 URL 是否指向同一仓库（规范化后精确相等）。
+
+    相比 `a in b or b in a` 的子串包含匹配，可避免把
+    `owner/repo` 与 `owner/repo2` 等相似但不同的仓库误判为同一项目。
+
+    Args:
+        url_a: 仓库 URL A
+        url_b: 仓库 URL B
+
+    Returns:
+        bool: True 表示指向同一仓库
+    """
+    a = normalize_repo_url(url_a)
+    b = normalize_repo_url(url_b)
+    return bool(a) and a == b

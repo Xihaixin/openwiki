@@ -105,6 +105,10 @@ class WikiGenerationFlow(BaseFlow):
         self.wiki_structure: Optional[WikiStructure] = None
         self.generated_pages: Dict[str, str] = {}  # page_id → content
 
+        # 性能缓存（#8 doc_map / #9 retriever 复用）
+        # 文档索引首次从 DB 加载后缓存，多页面生成时复用，避免每页全量重载
+        self._doc_map: Optional[Dict[str, str]] = None
+
         # 缓存键（对应前端 getCacheKey）
         self.cache_key = get_cache_key(
             self.owner, self.repo, self.repo_type, self.language, self.comprehensive
@@ -675,14 +679,18 @@ Return ONLY valid XML with this exact structure:
             logger.warning("  project_id 为空，无法初始化检索器")
             return None
 
+        # 复用已初始化的检索器实例（#9 修复：多页面生成时避免重复初始化连接池）
+        if self.retriever is not None:
+            return self.retriever
+
         try:
-            retriever = PgvectorRetriever(
+            self.retriever = PgvectorRetriever(
                 project_id=self.project_id,
                 retrieval_type="hybrid",
                 top_k=top_k,
             )
             logger.info(f"  ✓ RAG 检索器已初始化 (project_id={self.project_id})")
-            return retriever
+            return self.retriever
         except Exception as e:
             logger.warning(f"  初始化 RAG 检索器失败: {e}", exc_info=True)
             return None
@@ -704,30 +712,35 @@ Return ONLY valid XML with this exact structure:
             return {}
 
         try:
-            documents = DocumentRepository.get_by_project(self.project_id)
-            if not documents:
-                logger.info("  数据库中没有文档记录")
-                return {}
+            # 首次调用时从数据库加载 file_path → content 索引，之后复用（#8 修复）
+            # Wiki 生成期间文档内容不变，实例级缓存可安全复用，避免每页全量重载 O(页数 × 文档数)
+            if self._doc_map is None:
+                documents = DocumentRepository.get_by_project(self.project_id)
+                self._doc_map = {}
+                if not documents:
+                    logger.info("  数据库中没有文档记录")
+                else:
+                    logger.info(f"  从数据库加载文档索引: {len(documents)} 篇")
+                    for doc in documents:
+                        fp = doc.get("file_path", "")
+                        content = doc.get("content", "")
+                        if fp and content:
+                            self._doc_map[fp] = content
 
-            # 建立 file_path → content 索引 #BUG: 每调用一次 _fetch_file_contents 函数，都需要从数据库中加载所有的文档，重复构建 doc_map，无法复用，效率低下
-            doc_map: Dict[str, str] = {}
-            for doc in documents:
-                fp = doc.get("file_path", "")
-                content = doc.get("content", "")
-                if fp and content:
-                    doc_map[fp] = content
+            if not self._doc_map:
+                return {}
 
             # 匹配页面相关文件
             file_contents: Dict[str, str] = {}
             for fp in page.filePaths:
                 # 精确匹配
-                if fp in doc_map:
-                    file_contents[fp] = doc_map[fp]
-                    logger.info(f"  ✓ 获取文件内容: {fp} ({len(doc_map[fp])} 字符)")
+                if fp in self._doc_map:
+                    file_contents[fp] = self._doc_map[fp]
+                    logger.info(f"  ✓ 获取文件内容: {fp} ({len(self._doc_map[fp])} 字符)")
                 else:
                     # 模糊匹配（路径后缀或包含）
                     matched = False
-                    for db_fp, content in doc_map.items():
+                    for db_fp, content in self._doc_map.items():
                         if db_fp.endswith(fp) or fp in db_fp:
                             file_contents[db_fp] = content
                             logger.info(f"  ✓ 模糊匹配文件内容: {db_fp} ({len(content)} 字符)")

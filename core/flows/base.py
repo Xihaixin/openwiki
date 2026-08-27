@@ -29,6 +29,7 @@ from core.config import (
     load_generator_config, load_embedder_config, load_lang_config,
 )
 from core.utils.llm import call_llm_stream
+from core.utils.repo import repo_urls_match
 from core.utils.sse import parse_sse_chunk, call_llm_and_collect
 from core.utils.language import get_language_name as _get_language_name
 from infra.integration.deepwiki_adapter import PgvectorRetriever
@@ -230,9 +231,10 @@ class BaseFlow:
         try:
             projects = ProjectRepository.list_all()
             for proj in projects:
-                # 1. 按 repo_url 匹配
+                # 1. 按 repo_url 匹配（规范化后精确比较，替代宽松的子串包含匹配，
+                #    避免 owner/repo 与 owner/repo2 等相似但不同的仓库被误判为同一项目）
                 proj_url = proj.get("repo_url", "")
-                if proj_url and (self.repo_url in proj_url or proj_url in self.repo_url):  ## TODO: 这里采用 url 包含的逻辑来判断我们要找的 url 在数据库中是否存在。应该封装一个工具专门进行检查
+                if proj_url and repo_urls_match(self.repo_url, proj_url):
                     pid = proj.get("id") 
                     self.project_id = str(pid) if pid else None
                     return self.project_id

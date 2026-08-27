@@ -127,17 +127,17 @@ async def _handle_simple_chat_ws(
     model: Optional[str],
 ):
     """
-    处理普通 WebSocket 聊天 — 委托给 SimpleChatFlow.chat()
+    处理普通 WebSocket 聊天 — 委托给 SimpleChatFlow.stream()（真流式）
 
-    SimpleChatFlow.chat() 负责完整的业务流程:
+    SimpleChatFlow.stream() 负责完整的业务流程:
       1. 初始化 RAG 引擎（RAGEngine）
       2. 构建 RAG 上下文
       3. 构建 prompt（系统指令 + 上下文 + 用户问题）
-      4. 调用 LLM 获取完整响应
+      4. 调用 LLM 真流式生成（逐块 yield，与深度研究一致）
       5. 记录问答日志到 qa_logs 表（通过 RAGEngine.log_qa()）
 
     API 层负责:
-      - WebSocket 纯文本分片推流
+      - 逐块转发 LLM 输出（不再做 50 字符伪切片）
       - 发送 [DONE] / [ERROR] 标记
     """
     try:
@@ -150,15 +150,8 @@ async def _handle_simple_chat_ws(
             use_database=True,
         )
 
-        # 委托给 SimpleChatFlow.chat() 完整方法
-        # chat() 内部执行: 初始化 RAG → 构建上下文 → 构建 prompt → 调用 LLM → 记录 QA 日志
-        full_response = await flow.chat(query)
-
-        # 将完整响应以纯文本分片推流
-        # 按字符逐片发送，模拟流式输出
-        chunk_size = 50  # 每片 50 字符
-        for i in range(0, len(full_response), chunk_size):
-            chunk = full_response[i:i + chunk_size]
+        # 真流式：逐块转发 LLM 输出（与 _handle_deep_research_ws 一致）
+        async for chunk in flow.stream(query):
             await websocket.send_text(chunk)
 
         # 发送完成信号
