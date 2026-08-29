@@ -44,36 +44,13 @@ from core.config import (
     get_embedder_config,
     get_embedder_type,
     get_model_config,
+    get_config,
 )
 
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 全局配置缓存（保持向后兼容）
+# 全局配置缓存（单一来源：core.config，消除重复加载）
 # ============================================================
 
-configs: Dict[str, Any] = {}
-
-# 加载所有配置
-generator_config = load_generator_config()
-embedder_config = load_embedder_config()
-repo_config = load_repo_config()
-lang_config = load_lang_config()
-
-# 更新全局配置
-if generator_config:
-    configs["default_provider"] = generator_config.get("default_provider", "dashscope")
-    configs["providers"] = generator_config.get("providers", {})
-
-if embedder_config:
-    for key in ["embedder", "embedder_ollama", "embedder_google", "embedder_bedrock", "retriever", "text_splitter"]:
-        if key in embedder_config:
-            configs[key] = embedder_config[key]
-
-if repo_config:
-    for key in ["file_filters", "repository"]:
-        if key in repo_config:
-            configs[key] = repo_config[key]
-
-if lang_config:
-    configs["lang_config"] = lang_config
+configs: Dict[str, Any] = get_config()

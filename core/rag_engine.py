@@ -2,7 +2,7 @@
 rag_engine.py — 核心 RAG 引擎
 ================================
 
-从 rag_optimizer/pipeline/rag_engine.py 提升至 core/ 层，
+从 infra/pipeline/rag_engine.py 提升至 core/ 层，
 作为 core/flows/ 和 api/ 的公共 RAG 入口。
 
 整合检索、缓存、LLM 生成、qa_logs 记录，提供完整的 RAG 问答能力。
@@ -21,12 +21,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from rag_optimizer.cache.embedding_cache import embedding_cache
-from rag_optimizer.cache.semantic_cache import semantic_cache
-from rag_optimizer.config.settings import settings
-from rag_optimizer.db.connection import sync_conn
-from rag_optimizer.pipeline.ingestion import Embedder
-from rag_optimizer.retrieval.hybrid_retriever import (
+from infra.cache.embedding_cache import embedding_cache
+from infra.cache.semantic_cache import semantic_cache
+from infra.config.settings import settings
+from infra.db.connection import sync_conn
+from infra.pipeline.ingestion import Embedder
+from infra.retrieval.hybrid_retriever import (
     HybridRetriever,
     RetrievalResult,
     RetrievalStats,

@@ -1,0 +1,661 @@
+"""
+数据访问层 — Repository 模式
+
+封装对数据库的 CRUD 操作，提供高层 API 供业务逻辑调用。
+支持同步和异步两种模式。
+"""
+
+import hashlib
+import json
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+from infra.config.settings import settings
+from infra.db.connection import sync_conn, async_pool
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# 工具函数
+# ============================================================
+
+def compute_sha256(content: str) -> str:
+    """计算内容的 SHA-256 哈希"""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def vector_to_str(vector: List[float]) -> str:
+    """将向量列表转为 PostgreSQL vector 文本格式 '[x,y,z]'"""
+    return "[" + ",".join(str(v) for v in vector) + "]"
+
+
+# ============================================================
+# 项目 Repository
+# ============================================================
+
+class ProjectRepository:
+    """项目数据访问"""
+
+    @staticmethod
+    def get_or_create(name: str, repo_url: Optional[str] = None,
+                      owner: Optional[str] = None, repo_type: str = "gitee",
+                      local_path: Optional[str] = None) -> dict:
+        """获取或创建项目
+
+        先按 repo_url 查找（如果提供），再按 name 查找。
+        如果都不存在则创建新项目。
+
+        NOTE: repo_url 可能为空字符串，此时不能用于查重，
+        改用 name 作为查找条件。
+        """
+        # 按 repo_url 查找（仅当 repo_url 非空时）
+        if repo_url:
+            existing = sync_conn.execute(
+                "SELECT * FROM projects WHERE repo_url = %s", (repo_url,)
+            )
+            if existing:
+                logger.info(f"Found existing project by repo_url: {repo_url}")
+                return dict(existing[0])
+
+        # 按 name 查找（兜底：当 repo_url 为空或未找到时）
+        existing = sync_conn.execute(
+            "SELECT * FROM projects WHERE name = %s", (name,)
+        )
+        if existing:
+            logger.info(f"Found existing project by name: {name}")
+            return dict(existing[0])
+
+        result = sync_conn.execute(
+            """INSERT INTO projects (name, repo_url, owner, repo_type, local_path)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING *""",
+            (name, repo_url, owner, repo_type, local_path)
+        )
+        logger.info(f"Created project: {name}")
+        return dict(result[0])
+
+    @staticmethod
+    def get_by_id(project_id: str) -> Optional[dict]:
+        """根据 ID 获取项目"""
+        result = sync_conn.execute(
+            "SELECT * FROM projects WHERE id = %s", (project_id,)
+        )
+        return dict(result[0]) if result else None
+
+    @staticmethod
+    def list_all() -> List[dict]:
+        """列出所有项目"""
+        result = sync_conn.execute(
+            "SELECT * FROM projects ORDER BY created_at DESC"
+        )
+        return [dict(r) for r in result] if result else []
+
+    @staticmethod
+    def update_last_commit(project_id: str, commit_hash: str):
+        """更新最近 commit"""
+        sync_conn.execute(
+            "UPDATE projects SET last_commit = %s, updated_at = NOW() WHERE id = %s",
+            (commit_hash, project_id)
+        )
+
+
+# ============================================================
+# 文档 Repository
+# ============================================================
+
+class DocumentRepository:
+    """文档数据访问"""
+
+    @staticmethod
+    def upsert(project_id: str, file_path: str, content: str,
+               file_type: Optional[str] = None, is_code: bool = True,
+               token_count: Optional[int] = None) -> Tuple[str, bool]:
+        """
+        插入或更新文档。
+        返回 (document_id, is_changed) — is_changed 表示内容是否有变更。
+        """
+        content_hash = compute_sha256(content)
+
+        # 检查是否已存在
+        existing = sync_conn.execute(
+            """SELECT id, content_sha256 FROM raw_documents
+               WHERE project_id = %s AND file_path = %s""",
+            (project_id, file_path)
+        )
+
+        if existing:
+            doc = existing[0]
+            if doc["content_sha256"] == content_hash:
+                # 内容未变更
+                return str(doc["id"]), False
+
+            # 内容已变更：更新文档
+            sync_conn.execute(
+                """UPDATE raw_documents SET content = %s, content_sha256 = %s,
+                   token_count = %s, is_deleted = FALSE, file_type = %s
+                   WHERE id = %s""",
+                (content, content_hash, token_count, file_type, doc["id"])
+            )
+            # 记录版本
+            sync_conn.execute(
+                """INSERT INTO document_versions (document_id, content_hash, content, token_count, change_type)
+                   VALUES (%s, %s, %s, %s, 'modified')""",
+                (doc["id"], content_hash, content, token_count)
+            )
+            return str(doc["id"]), True
+
+        # 新建文档
+        result = sync_conn.execute(
+            """INSERT INTO raw_documents (project_id, file_path, file_type, content,
+                                          token_count, is_code, content_sha256)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING id""",
+            (project_id, file_path, file_type, content, token_count, is_code, content_hash)
+        )
+        doc_id = str(result[0]["id"])
+
+        # 记录版本
+        sync_conn.execute(
+            """INSERT INTO document_versions (document_id, content_hash, content, token_count, change_type)
+               VALUES (%s, %s, %s, %s, 'added')""",
+            (doc_id, content_hash, content, token_count)
+        )
+        return doc_id, True
+
+    @staticmethod
+    def soft_delete(project_id: str, file_path: str):
+        """逻辑删除文档"""
+        sync_conn.execute(
+            "UPDATE raw_documents SET is_deleted = TRUE WHERE project_id = %s AND file_path = %s",
+            (project_id, file_path)
+        )
+
+    @staticmethod
+    def get_by_project(project_id: str, include_deleted: bool = False) -> List[dict]:
+        """获取项目的所有文档"""
+        query = "SELECT * FROM raw_documents WHERE project_id = %s"
+        if not include_deleted:
+            query += " AND is_deleted = FALSE"
+        query += " ORDER BY created_at"
+        result = sync_conn.execute(query, (project_id,))
+        return [dict(r) for r in result] if result else []
+
+
+# ============================================================
+# 分块 Repository
+# ============================================================
+
+class ChunkRepository:
+    """文档分块数据访问"""
+
+    @staticmethod
+    def batch_insert(document_id: str, chunks: List[Dict[str, Any]]):
+        """批量插入分块"""
+        # 先删除旧分块
+        sync_conn.execute(
+            "DELETE FROM document_chunks WHERE document_id = %s", (document_id,)
+        )
+
+        for chunk in chunks:
+            sync_conn.execute(
+                """INSERT INTO document_chunks
+                   (document_id, chunk_index, content, chunk_size, chunk_overlap,
+                    split_by, token_count, start_offset, end_offset, metadata)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)""",
+                (
+                    document_id,
+                    chunk["chunk_index"],
+                    chunk["content"],
+                    chunk.get("chunk_size"),
+                    chunk.get("chunk_overlap"),
+                    chunk.get("split_by"),
+                    chunk.get("token_count"),
+                    chunk.get("start_offset"),
+                    chunk.get("end_offset"),
+                    json.dumps(chunk.get("metadata", {})),
+                )
+            )
+
+    @staticmethod
+    def get_by_document(document_id: str) -> List[dict]:
+        """获取文档的所有分块"""
+        result = sync_conn.execute(
+            "SELECT * FROM document_chunks WHERE document_id = %s ORDER BY chunk_index",
+            (document_id,)
+        )
+        return [dict(r) for r in result] if result else []
+
+
+# ============================================================
+# 嵌入 Repository
+# ============================================================
+
+class EmbeddingRepository:
+    """向量嵌入数据访问"""
+
+    @staticmethod
+    def insert(chunk_id: str, project_id: str, model_id: str,
+               embedding: List[float], content: Optional[str] = None,
+               file_path: Optional[str] = None, chunk_index: Optional[int] = None):
+        """插入向量嵌入"""
+        embedding_str = vector_to_str(embedding)
+        sync_conn.execute(
+            """INSERT INTO chunk_embeddings_dim256
+               (chunk_id, project_id, model_id, embedding, content, file_path, chunk_index)
+               VALUES (%s, %s, %s, %s::vector, %s, %s, %s)
+               ON CONFLICT (chunk_id, model_id) DO UPDATE SET
+               embedding = %s::vector, content = %s, file_path = %s, chunk_index = %s""",
+            (chunk_id, project_id, model_id, embedding_str,
+             content, file_path, chunk_index,
+             embedding_str, content, file_path, chunk_index)
+        )
+
+    @staticmethod
+    def get_model_id(model_name: str) -> Optional[str]:
+        """获取嵌入模型的 ID"""
+        result = sync_conn.execute(
+            "SELECT id FROM embedding_models WHERE name = %s", (model_name,)
+        )
+        return str(result[0]["id"]) if result else None
+
+
+# ============================================================
+# 摄取任务 Repository
+# ============================================================
+
+# 数据库 ingestion_status 枚举的有效值
+# 对应 SQL: CREATE TYPE ingestion_status AS ENUM (
+#   'pending', 'cloning', 'parsing', 'chunking',
+#   'embedding', 'indexing', 'completed', 'failed'
+# );
+VALID_INGESTION_STATUSES = frozenset({
+    "pending", "cloning", "parsing", "chunking",
+    "embedding", "indexing", "completed", "failed",
+})
+
+
+class IngestionJobRepository:
+    """摄取任务数据访问"""
+
+    @staticmethod
+    def _validate_status(status: str) -> str:
+        """校验状态值是否在数据库枚举中，若无效则抛出 ValueError"""
+        if status not in VALID_INGESTION_STATUSES:
+            raise ValueError(
+                f"无效的摄取状态: '{status}'。"
+                f"有效值: {', '.join(sorted(VALID_INGESTION_STATUSES))}"
+            )
+        return status
+
+    @staticmethod
+    def create(project_id: str, trigger_type: str = "manual") -> dict:
+        """创建摄取任务"""
+        result = sync_conn.execute(
+            """INSERT INTO ingestion_jobs (project_id, trigger_type, status)
+               VALUES (%s, %s, 'pending')
+               RETURNING *""",
+            (project_id, trigger_type)
+        )
+        return dict(result[0])
+
+    @staticmethod
+    def update_status(job_id: str, status: str, stage: Optional[str] = None,
+                      progress: Optional[float] = None,
+                      processed: Optional[int] = None,
+                      total: Optional[int] = None,
+                      error: Optional[str] = None):
+        """更新任务状态
+
+        Args:
+            job_id: 任务 ID
+            status: 状态值（必须是 ingestion_status 枚举中的有效值）
+            stage: 当前阶段描述
+            progress: 进度 (0.0 ~ 1.0)
+            processed: 已处理文件数
+            total: 总文件数
+            error: 错误信息
+
+        Raises:
+            ValueError: 如果 status 不是有效的枚举值
+        """
+        # 校验状态值
+        IngestionJobRepository._validate_status(status)
+
+        updates = ["status = %s"]
+        params = [status]
+
+        if stage is not None:
+            updates.append("current_stage = %s")
+            params.append(stage)
+        if progress is not None:
+            updates.append("progress = %s")
+            params.append(progress)
+        if processed is not None:
+            updates.append("processed_files = %s")
+            params.append(processed)
+        if total is not None:
+            updates.append("total_files = %s")
+            params.append(total)
+        if error is not None:
+            updates.append("error_message = %s")
+            params.append(error)
+
+        if status in ("cloning", "parsing"):
+            updates.append("started_at = NOW()")
+        elif status in ("completed", "failed"):
+            updates.append("completed_at = NOW()")
+
+        params.append(job_id)
+        try:
+            sync_conn.execute(
+                f"UPDATE ingestion_jobs SET {', '.join(updates)} WHERE id = %s",
+                tuple(params)
+            )
+        except Exception as e:
+            logger.error(f"更新任务状态失败 (job_id={job_id}, status={status}): {e}")
+            raise
+
+    @staticmethod
+    def get_pending_jobs() -> List[dict]:
+        """获取待处理的任务"""
+        result = sync_conn.execute(
+            """SELECT * FROM ingestion_jobs
+               WHERE status = 'pending'
+               ORDER BY created_at ASC
+               LIMIT 10"""
+        )
+        return [dict(r) for r in result] if result else []
+
+
+# ============================================================
+# 检索 Repository
+# ============================================================
+
+class RetrievalRepository:
+    """检索记录数据访问"""
+
+    @staticmethod
+    def log_retrieval(project_id: Optional[str], query_text: str,
+                      query_embedding: Optional[List[float]],
+                      top_k: int, retrieval_type: str,
+                      hybrid_weight: float, latency_ms: int) -> str:
+        """记录检索"""
+        embedding_str = vector_to_str(query_embedding) if query_embedding else None
+        result = sync_conn.execute(
+            """INSERT INTO retrieval_logs
+               (project_id, query_text, query_embedding, top_k, retrieval_type, hybrid_weight, latency_ms)
+               VALUES (%s, %s, %s::vector, %s, %s, %s, %s)
+               RETURNING id""",
+            (project_id, query_text, embedding_str, top_k, retrieval_type, hybrid_weight, latency_ms)
+        )
+        return str(result[0]["id"])
+
+    @staticmethod
+    def log_results(retrieval_id: str, results: List[Dict[str, Any]]):
+        """批量记录检索结果"""
+        for r in results:
+            sync_conn.execute(
+                """INSERT INTO retrieval_results
+                   (retrieval_id, chunk_id, rank, vector_score, keyword_score, final_score, metadata)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)""",
+                (retrieval_id, r.get("chunk_id"), r.get("rank"),
+                 r.get("vector_score"), r.get("keyword_score"),
+                 r.get("final_score"), json.dumps(r.get("metadata", {})))
+            )
+
+
+# ============================================================
+# 管道日志 Repository
+# ============================================================
+
+class PipelineLogRepository:
+    """管道日志数据访问"""
+
+    @staticmethod
+    def log(project_id: Optional[str], job_id: Optional[str],
+            step_name: str, status: str,
+            input_count: Optional[int] = None,
+            output_count: Optional[int] = None,
+            duration_ms: Optional[int] = None,
+            error_message: Optional[str] = None,
+            parameters: Optional[dict] = None):
+        """记录管道步骤"""
+        sync_conn.execute(
+            """INSERT INTO pipeline_logs
+               (project_id, job_id, step_name, status, input_count, output_count,
+                duration_ms, error_message, parameters)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)""",
+            (project_id, job_id, step_name, status,
+             input_count, output_count, duration_ms,
+             error_message, json.dumps(parameters) if parameters else None)
+        )
+
+
+# ============================================================
+# Wiki 页面 Repository
+# ============================================================
+
+class WikiPageRepository:
+    """Wiki 页面数据访问"""
+
+    @staticmethod
+    def upsert(project_id: str, page_slug: str, title: str,
+               content_md: str, language: str = "zh",
+               is_comprehensive: bool = True,
+               wiki_cache_id: Optional[str] = None,
+               provider: Optional[str] = None,
+               model: Optional[str] = None,
+               source_chunks: Optional[List[Dict[str, Any]]] = None,
+               version: int = 1) -> str:
+        """
+        插入或更新 Wiki 页面。
+
+        使用 (project_id, page_slug, language, is_comprehensive) 唯一约束进行 UPSERT。
+        对应 SQL: wiki_pages 表的 UNIQUE (project_id, page_slug, language, is_comprehensive)。
+
+        Args:
+            project_id: 项目 ID
+            page_slug: 页面唯一标识（kebab-case）
+            title: 页面标题
+            content_md: Markdown 内容
+            language: 语言代码
+            is_comprehensive: 是否为综合模式
+            wiki_cache_id: 归属的 wiki_caches 记录 ID（溯源，可空）
+            provider: LLM 提供者
+            model: LLM 模型
+            source_chunks: 来源分块列表
+            version: 版本号
+
+        Returns:
+            str: 页面 ID
+        """
+        result = sync_conn.execute(
+            """INSERT INTO wiki_pages
+               (project_id, page_slug, title, content_md, language,
+                is_comprehensive, wiki_cache_id, provider, model, source_chunks, version)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+               ON CONFLICT (project_id, page_slug, language, is_comprehensive) DO UPDATE SET
+               title = EXCLUDED.title,
+               content_md = EXCLUDED.content_md,
+               is_comprehensive = EXCLUDED.is_comprehensive,
+               wiki_cache_id = EXCLUDED.wiki_cache_id,
+               provider = EXCLUDED.provider,
+               model = EXCLUDED.model,
+               source_chunks = EXCLUDED.source_chunks,
+               version = wiki_pages.version + 1,
+               updated_at = NOW()
+               RETURNING id""",
+            (project_id, page_slug, title, content_md, language,
+             is_comprehensive, wiki_cache_id, provider, model,
+             json.dumps(source_chunks) if source_chunks else None,
+             version)
+        )
+        return str(result[0]["id"])
+
+    @staticmethod
+    def get_by_project(project_id: str, language: Optional[str] = None,
+                       is_comprehensive: Optional[bool] = None) -> List[dict]:
+        """获取项目的所有 Wiki 页面（可按语言 / 综合模式过滤）"""
+        conditions = ["project_id = %s"]
+        params: List[Any] = [project_id]
+        if language:
+            conditions.append("language = %s")
+            params.append(language)
+        if is_comprehensive is not None:
+            conditions.append("is_comprehensive = %s")
+            params.append(is_comprehensive)
+        result = sync_conn.execute(
+            f"SELECT * FROM wiki_pages WHERE {' AND '.join(conditions)} ORDER BY created_at",
+            tuple(params)
+        )
+        return [dict(r) for r in result] if result else []
+
+    @staticmethod
+    def get_by_slug(project_id: str, page_slug: str, language: str = "zh",
+                    is_comprehensive: Optional[bool] = None) -> Optional[dict]:
+        """根据 slug 获取 Wiki 页面（可按综合模式过滤，避免同 slug 多模式歧义）"""
+        if is_comprehensive is not None:
+            result = sync_conn.execute(
+                "SELECT * FROM wiki_pages WHERE project_id = %s AND page_slug = %s "
+                "AND language = %s AND is_comprehensive = %s",
+                (project_id, page_slug, language, is_comprehensive)
+            )
+        else:
+            result = sync_conn.execute(
+                "SELECT * FROM wiki_pages WHERE project_id = %s AND page_slug = %s AND language = %s "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (project_id, page_slug, language)
+            )
+        return dict(result[0]) if result else None
+
+    @staticmethod
+    def delete_by_project(project_id: str):
+        """删除项目的所有 Wiki 页面"""
+        sync_conn.execute(
+            "DELETE FROM wiki_pages WHERE project_id = %s",
+            (project_id,)
+        )
+
+
+# ============================================================
+# Wiki 缓存 Repository
+# ============================================================
+
+
+class WikiCacheRepository:
+    """表：wiki_caches | Wiki 缓存数据访问（存储 Wiki 结构 + 元数据）"""
+
+    @staticmethod
+    def upsert(
+        project_id: str,
+        language: str,
+        structure_json: dict,
+        comprehensive: bool = False,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+        repo_type: Optional[str] = None,
+        repo_url: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        """插入或更新 Wiki 缓存。
+
+        使用 (project_id, language, comprehensive) 唯一约束进行 UPSERT；
+        命中已软删除的历史记录时自动恢复（is_deleted 重置为 FALSE）。
+        对应 SQL: wiki_caches 表的 UNIQUE (project_id, language, comprehensive)。
+
+        Args:
+            project_id: 项目 ID
+            language: 语言代码
+            structure_json: Wiki 结构 JSON（包含 sections、pages 列表等）
+            comprehensive: 是否为综合模式（concise/comprehensive 两套缓存独立）
+            repo_owner: 仓库所有者
+            repo_name: 仓库名称
+            repo_type: 仓库类型（github/gitlab/gitee）
+            repo_url: 仓库 URL
+            provider: LLM 提供者
+            model: LLM 模型
+
+        Returns:
+            str: 缓存记录 ID
+        """
+        result = sync_conn.execute(
+            """INSERT INTO wiki_caches
+               (project_id, language, comprehensive, structure_json,
+                repo_owner, repo_name, repo_type, repo_url,
+                provider, model)
+               VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (project_id, language, comprehensive) DO UPDATE SET
+               structure_json = EXCLUDED.structure_json,
+               repo_owner = EXCLUDED.repo_owner,
+               repo_name = EXCLUDED.repo_name,
+               repo_type = EXCLUDED.repo_type,
+               repo_url = EXCLUDED.repo_url,
+               provider = EXCLUDED.provider,
+               model = EXCLUDED.model,
+               is_deleted = FALSE,
+               deleted_at = NULL,
+               updated_at = NOW()
+               RETURNING id""",
+            (project_id, language, comprehensive, json.dumps(structure_json),
+             repo_owner, repo_name, repo_type, repo_url,
+             provider, model)
+        )
+        return str(result[0]["id"])
+
+    @staticmethod
+    def get_by_project(project_id: str, language: str,
+                       comprehensive: bool = False) -> Optional[dict]:
+        """获取项目的 Wiki 缓存（按 3 列唯一定位，过滤已软删除记录）。
+
+        Args:
+            project_id: 项目 ID
+            language: 语言代码
+            comprehensive: 是否为综合模式
+
+        Returns:
+            Optional[dict]: 缓存记录，未找到返回 None
+        """
+        result = sync_conn.execute(
+            "SELECT * FROM wiki_caches WHERE project_id = %s AND language = %s "
+            "AND comprehensive = %s AND is_deleted = FALSE",
+            (project_id, language, comprehensive)
+        )
+        return dict(result[0]) if result else None
+
+    @staticmethod
+    def delete(project_id: str, language: str) -> bool:
+        """软删除项目的 Wiki 缓存（该语言下所有 comprehensive 变体）。
+
+        Args:
+            project_id: 项目 ID
+            language: 语言代码
+
+        Returns:
+            bool: 是否确实软删除了记录
+        """
+        result = sync_conn.execute(
+            "UPDATE wiki_caches SET is_deleted = TRUE, deleted_at = NOW() "
+            "WHERE project_id = %s AND language = %s AND is_deleted = FALSE RETURNING id",
+            (project_id, language)
+        )
+        return len(result) > 0 if result else False
+
+    @staticmethod
+    def delete_by_project(project_id: str):
+        """软删除项目的所有语言 Wiki 缓存。"""
+        sync_conn.execute(
+            "UPDATE wiki_caches SET is_deleted = TRUE, deleted_at = NOW() "
+            "WHERE project_id = %s AND is_deleted = FALSE",
+            (project_id,)
+        )
+
+    @staticmethod
+    def list_all() -> List[dict]:
+        """列出所有未软删除的 Wiki 缓存记录（按更新时间倒序）。"""
+        result = sync_conn.execute(
+            "SELECT * FROM wiki_caches WHERE is_deleted = FALSE ORDER BY updated_at DESC"
+        )
+        return [dict(r) for r in result] if result else []

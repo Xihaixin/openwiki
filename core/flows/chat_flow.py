@@ -22,10 +22,11 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from core.flows.base import BaseFlow, call_llm_and_collect
+from core.flows.base import BaseFlow
 from core.models import Message
 from core.prompts.rag import SIMPLE_CHAT_SYSTEM_PROMPT, render_rag_template
 from core.rag_engine import RAGEngine
+from core.utils.llm import call_llm_stream_raw
 
 logger = logging.getLogger("core.flows.chat")
 
@@ -204,27 +205,19 @@ class SimpleChatFlow(BaseFlow):
 
         return messages
 
-    async def chat(
+    async def stream(
         self, query: str,
         history: Optional[List[Message]] = None,
-    ) -> str:
+    ):
         """
-        执行一次聊天问答。
+        真流式聊天：逐步 yield LLM 输出块（AsyncGenerator）。
 
-        对应前端 Ask.tsx 中的 handleConfirmAsk() 流程：
-          1. 准备请求体（repo_url, messages, provider, model, language）
-          2. 通过 WebSocket 发送
-          3. 接收流式响应
-
-        对应后端 api/simple_chat.py 中的 _handle_simple_chat() 流程：
-          1. 初始化 RAG 引擎
-          2. 检索相关文档
-          3. 构建 prompt
-          4. 调用 LLM 流式生成
-          5. 记录问答日志到 qa_logs 表
+        流程与 chat() 一致（RAG 初始化 → 上下文 → prompt → LLM → QA 日志），
+        但 LLM 调用使用 call_llm_stream_raw() 逐块推流，不等待完整响应，
+        前端逐块拼接即可（WebSocket 场景），无需 50 字符伪切片。
         """
         logger.info("\n" + "=" * 60)
-        logger.info("SimpleChatFlow.chat()")
+        logger.info("SimpleChatFlow.stream()")
         logger.info("=" * 60)
         logger.info(f"问题: {query}")
 
@@ -243,16 +236,19 @@ class SimpleChatFlow(BaseFlow):
         messages = self._build_prompt(query, context, history)
         logger.info(f"  messages 数: {len(messages)}")
 
-        # 步骤 4: 调用 LLM
+        # 步骤 4: 调用 LLM 真流式生成
         logger.info(f"步骤 3: 调用 LLM ({self.provider}/{self.model})...")
         full_response = ""
-
         try:
-            full_response = await call_llm_and_collect(self.provider, self.model, messages)
-            logger.info(f"✓ LLM 返回完成 ({len(full_response)} 字符)")
+            async for chunk in call_llm_stream_raw(self.provider, self.model, messages):
+                full_response += chunk
+                yield chunk
+            logger.info(f"✓ LLM 流式返回完成 ({len(full_response)} 字符)")
         except Exception as e:
-            logger.error(f"LLM 调用失败: {e}")
-            full_response = f"[错误] LLM 调用失败: {e}"
+            logger.error(f"LLM 流式调用失败: {e}")
+            error_text = f"[错误] LLM 调用失败: {e}"
+            full_response = error_text
+            yield error_text
 
         latency_ms = int((time.time() - start_time) * 1000)
 
@@ -271,6 +267,28 @@ class SimpleChatFlow(BaseFlow):
         else:
             logger.debug("跳过 qa_logs 记录（无 RAG 引擎）")
 
+    async def chat(
+        self, query: str,
+        history: Optional[List[Message]] = None,
+    ) -> str:
+        """
+        执行一次聊天问答（收集 stream() 的完整输出，向后兼容）。
+
+        对应前端 Ask.tsx 中的 handleConfirmAsk() 流程：
+          1. 准备请求体（repo_url, messages, provider, model, language）
+          2. 通过 WebSocket 发送
+          3. 接收流式响应
+
+        对应后端 api/simple_chat.py 中的 _handle_simple_chat() 流程：
+          1. 初始化 RAG 引擎
+          2. 检索相关文档
+          3. 构建 prompt
+          4. 调用 LLM 流式生成
+          5. 记录问答日志到 qa_logs 表
+        """
+        full_response = ""
+        async for chunk in self.stream(query, history):
+            full_response += chunk
         return full_response
 
     def print_conversation(self) -> None:

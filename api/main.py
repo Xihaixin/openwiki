@@ -63,7 +63,7 @@ async def lifespan(app):
     # 初始化异步数据库连接池
     _db_pool = None
     try:
-        from rag_optimizer.db.connection import AsyncDatabasePool
+        from infra.db.connection import AsyncDatabasePool
 
         _db_pool = AsyncDatabasePool()
         await _db_pool.init_pool()
@@ -102,16 +102,14 @@ async def lifespan(app):
 
 
 # ============================================================
-# FastAPI 应用
+# FastAPI 应用（唯一入口，路由统一挂载）
 # ============================================================
 
-# 导入 api.api 模块（这会创建 FastAPI app 实例并注册所有路由）
-# 然后我们重新创建 app 以应用 lifespan
-from api.api import app as _original_app
-
-# 创建新的 app 实例，应用 lifespan
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from api.routers import api_router
+from api.websocket_wiki import handle_websocket_chat
 
 app = FastAPI(
     title="OpenWiki API (RAG Optimized)",
@@ -120,26 +118,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 复制 CORS 中间件
+# CORS 配置（allow_origins=["*"] 时不允许携带凭证，修正无效组合）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 复制所有路由
-for route in _original_app.routes:
-    app.routes.append(route)
+# 挂载全部 HTTP 路由（api.routers 聚合了 system/wiki_cache/export/local_repo/wiki/chat/meta）
+app.include_router(api_router)
 
-# 复制异常处理器
-for exc_class_or_status_code, handler in _original_app.exception_handlers.items():
-    app.exception_handlers[exc_class_or_status_code] = handler
-
-# 复制中间件
-app.user_middleware = _original_app.user_middleware
-app.middleware_stack = _original_app.middleware_stack
+# 注册 WebSocket 端点
+app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
 
 logger.info(f"App initialized with {len(app.routes)} routes")
 

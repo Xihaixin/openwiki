@@ -16,8 +16,8 @@ base.py — 业务流公共基类
   - core.utils.llm — call_llm_stream
   - core.utils.sse — parse_sse_chunk, call_llm_and_collect
   - core.utils.language — get_language_name
-  - rag_optimizer.integration.deepwiki_adapter — PgvectorRetriever
-  - rag_optimizer.db.repository — ProjectRepository
+  - infra.integration.deepwiki_adapter — PgvectorRetriever
+  - infra.db.repository — ProjectRepository
 """
 
 import os
@@ -29,10 +29,11 @@ from core.config import (
     load_generator_config, load_embedder_config, load_lang_config,
 )
 from core.utils.llm import call_llm_stream
+from core.utils.repo import repo_urls_match
 from core.utils.sse import parse_sse_chunk, call_llm_and_collect
 from core.utils.language import get_language_name as _get_language_name
-from rag_optimizer.integration.deepwiki_adapter import PgvectorRetriever
-from rag_optimizer.db.repository import ProjectRepository
+from infra.integration.deepwiki_adapter import PgvectorRetriever
+from infra.db.repository import ProjectRepository
 
 logger = logging.getLogger("core.flows.base")
 
@@ -116,23 +117,6 @@ def load_configs() -> Dict[str, Any]:
         configs["embedder"] = {}
 
     return configs
-
-
-def get_cache_key(
-    owner: str, repo: str, repo_type: str,
-    language: str, comprehensive: bool = False,
-) -> str:
-    """
-    生成 Wiki 缓存键。
-
-    对应前端 page.tsx 中的 getCacheKey() 函数。
-    """
-    mode = "comprehensive" if comprehensive else "concise"
-    if "_" in owner:
-        owner = owner.replace("_","-")
-    if "_" in repo:
-        repo = repo.replace("_","-")
-    return f"openwiki_cache_{repo_type}_{owner}_{repo}_{language}_{mode}"
 
 
 def generate_file_url(file_path: str, repo_url: str, repo_type: str = "github") -> str:
@@ -247,9 +231,10 @@ class BaseFlow:
         try:
             projects = ProjectRepository.list_all()
             for proj in projects:
-                # 1. 按 repo_url 匹配
+                # 1. 按 repo_url 匹配（规范化后精确比较，替代宽松的子串包含匹配，
+                #    避免 owner/repo 与 owner/repo2 等相似但不同的仓库被误判为同一项目）
                 proj_url = proj.get("repo_url", "")
-                if proj_url and (self.repo_url in proj_url or proj_url in self.repo_url):  ## TODO: 这里采用 url 包含的逻辑来判断我们要找的 url 在数据库中是否存在。应该封装一个工具专门进行检查
+                if proj_url and repo_urls_match(self.repo_url, proj_url):
                     pid = proj.get("id") 
                     self.project_id = str(pid) if pid else None
                     return self.project_id

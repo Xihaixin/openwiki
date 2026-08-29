@@ -8,48 +8,24 @@ core.config — 统一配置模块
   - 所有配置加载逻辑集中在此模块
   - api/config.py 保留为薄重导出层（向后兼容）
   - 支持环境变量覆盖（通过 replace_env_placeholders）
-  - 与 rag_optimizer.config.settings 协同（settings 作为底层默认值）
+  - 与 infra.config.settings 协同（settings 作为底层默认值）
 
 配置来源（按优先级从高到低）：
   1. 环境变量（直接覆盖）
   2. JSON 配置文件（api/config/*.json）
-  3. rag_optimizer.config.settings（底层默认值）
+  3. infra.config.settings（底层默认值）
 """
 
 import re
 import os
-import sys
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from rag_optimizer.config.settings import settings
+from infra.config.settings import settings
 
 logger = logging.getLogger("core.config")
-
-
-
-ADALFLOW_DIR = os.environ.get("ADALFLOW_DIR")
-
-def get_adalflow_default_root_path() -> str:
-    """获取 Adalflow 默认根路径"""
-    platform = sys.platform
-    if ADALFLOW_DIR:
-        project_path = ADALFLOW_DIR
-    elif platform == "win32":
-        project_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))    
-    elif platform == "adarwin":
-        project_path = os.path.join(os.path.expanduser('~'), 'Library')
-    else:
-        # Linux/Unix: ~/.cache/
-        # 遵循 XDG Base Directory Specification
-        project_path = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache')) 
-    return os.path.expanduser(os.path.join(project_path, ".adalflow"))
-
-
-WIKI_CACHE_DIR = os.path.join(get_adalflow_default_root_path(), "wikicache")
-os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
 
 # ============================================================
 # 环境变量
@@ -148,11 +124,11 @@ def load_generator_config() -> dict:
     """加载生成器模型配置"""
     generator_config = load_json_config("generator.json")
 
-    # 从 rag_optimizer 设置中补充默认值
+    # 从 infra 设置中补充默认值
     if not generator_config.get("providers"):
         generator_config.setdefault("providers", {})
 
-    # 确保 dashscope 提供者存在（rag_optimizer 默认使用 dashscope）
+    # 确保 dashscope 提供者存在（infra 默认使用 dashscope）
     if "dashscope" not in generator_config.get("providers", {}):
         generator_config.setdefault("providers", {})
         generator_config["providers"]["dashscope"] = {
@@ -176,7 +152,7 @@ def load_embedder_config() -> dict:
     """加载嵌入器配置"""
     embedder_config = load_json_config("embedder.json")
 
-    # 从 rag_optimizer 设置中补充默认值
+    # 从 infra 设置中补充默认值
     if not embedder_config.get("embedder"):
         embedder_config["embedder"] = {
             "batch_size": settings.embedding.batch_size,
