@@ -314,7 +314,7 @@ class DbRedisWikiCacheStorage:
     ) -> Optional[str]:
         """将 (owner, repo, repo_type) 解析为 project_id"""
         project = ProjectRepository.get_or_create(
-            name=f"{owner}/{repo}", owner=owner, repo_type=repo_type,
+            name=repo, owner=owner, repo_type=repo_type,
         )
         return str(project["id"]) if project else None
 
