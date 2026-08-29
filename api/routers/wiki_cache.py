@@ -149,48 +149,6 @@ async def get_processed_projects():
                 logger.error(f"Error processing project entry {entry.get('id')}: {e}")
                 continue
 
-        # 2. 从 PostgreSQL 数据库获取项目列表作为补充
-        try:
-            db_projects = wiki_cache_service.list_db_projects()
-            # 复合键去重：(owner_lower, repo_lower, language)
-            # 缓存条目 id 是文件名、DB 条目 id 是 UUID，类型不同不能用 id 直接去重
-            seen_keys = {
-                (p.owner.lower(), p.repo.lower(), p.language)
-                for p in project_entries
-            }
-            # projects 表无 language 字段，使用配置默认语言（与缓存读写端点的 fallback 一致）
-            default_lang = configs.get("lang", {}).get("default", "en")
-            for proj in db_projects:
-                owner = proj.get("owner") or "unknown"
-                repo = proj.get("name") or "unknown"
-                language = default_lang
-                dedup_key = (owner.lower(), repo.lower(), language)
-                if dedup_key in seen_keys:
-                    continue
-                seen_keys.add(dedup_key)
-
-                created_at = proj.get("created_at")
-                if isinstance(created_at, datetime):
-                    timestamp = int(created_at.timestamp() * 1000)
-                else:
-                    timestamp = 0
-
-                project_entries.append(
-                    ProcessedProjectEntry(
-                        id=str(proj.get("id", "")),
-                        owner=owner,
-                        repo=repo,
-                        name=f"{owner}/{repo}",
-                        repo_type=proj.get("repo_type") or "github",
-                        submittedAt=timestamp,
-                        language=language,
-                        # 仅存在于 projects 表的项目无 comprehensive 缓存 → 默认 False
-                        comprehensive=False,
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Could not fetch projects from database: {e}")
-
         # 按时间排序（最新的在前）
         project_entries.sort(key=lambda p: p.submittedAt, reverse=True)
         logger.info(f"Found {len(project_entries)} processed project entries.")
