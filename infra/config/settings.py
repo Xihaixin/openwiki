@@ -140,10 +140,10 @@ class CacheConfig:
     """Wiki 缓存存储后端配置
 
     backend:
-      - filesystem — 本地 JSON 文件缓存（默认，行为向后兼容）
-      - db_redis   — PostgreSQL + Redis 双层缓存（生产形态，对应 openwiki 库）
+      - filesystem — 本地 JSON 文件缓存 | 向后兼容
+      - db_redis   — PostgreSQL + Redis 双层缓存（生产和开发形态，对应 openwiki 库）
     """
-    backend: str = os.getenv("CACHE_BACKEND", "filesystem")  # filesystem | db_redis
+    backend: str = os.getenv("CACHE_BACKEND", "db_redis")  # filesystem | db_redis
 
 
 # ============================================================

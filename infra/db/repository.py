@@ -545,7 +545,7 @@ class WikiPageRepository:
 
 
 class WikiCacheRepository:
-    """Wiki 缓存数据访问（存储 Wiki 结构 + 元数据）"""
+    """表：wiki_caches | Wiki 缓存数据访问（存储 Wiki 结构 + 元数据）"""
 
     @staticmethod
     def upsert(
