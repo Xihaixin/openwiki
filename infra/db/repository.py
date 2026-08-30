@@ -47,26 +47,38 @@ class ProjectRepository:
         先按 repo_url 查找（如果提供），再按 name 查找。
         如果都不存在则创建新项目。
 
-        NOTE: repo_url 可能为空字符串，此时不能用于查重，
-        改用 name 作为查找条件。
+        NOTE: 正常情况下，只有当 repo_type 为 local 时，repo_url 为空。
+        当项目尚未创建时，无法通过 repo_url 或者任何其它属性获取 project_id
+        
+        否则，对于正常处理过的项目， repo_url 不可能为空。
         """
-        # 按 repo_url 查找（仅当 repo_url 非空时）
-        if repo_url:
-            existing = sync_conn.execute(
+
+        if repo_type != "local":
+            assert repo_url, f" repo_url 为空，请检查数据源: {repo_url}"
+
+            if repo_url:    # 首次访问，不存在
+                web_existing = sync_conn.execute(
                 "SELECT * FROM projects WHERE repo_url = %s", (repo_url,)
             )
-            if existing:
+            if web_existing:
                 logger.info(f"Found existing project by repo_url: {repo_url}")
-                return dict(existing[0])
+                return dict(web_existing[0])
+            
+        if repo_type == "local":
+            # 如果是本地，先根据 local_path 来查询
+            local_existing = sync_conn.execute(
+                "SELECT * FROM projects WHERE repo_type = %s AND local_path = %s",
+                (repo_type, local_path)
+            )
+            if name and owner and repo_type:
+                local_existing = sync_conn.execute(
+                    "SELECT * FROM projects WHERE name = %s AND owner = %s AND repo_type = %s",
+                    (name, owner, repo_type)
+                )
+            if local_existing:
+                return dict(local_existing[0])
 
-        # 按 name 查找（兜底：当 repo_url 为空或未找到时）
-        existing = sync_conn.execute(
-            "SELECT * FROM projects WHERE name = %s", (name,)
-        )
-        if existing:
-            logger.info(f"Found existing project by name: {name}")
-            return dict(existing[0])
-
+        # 如果上面都没有查出数据，就需要创建
         result = sync_conn.execute(
             """INSERT INTO projects (name, repo_url, owner, repo_type, local_path)
                VALUES (%s, %s, %s, %s, %s)
@@ -74,7 +86,7 @@ class ProjectRepository:
             (name, repo_url, owner, repo_type, local_path)
         )
         logger.info(f"Created project: {name}")
-        return dict(result[0])
+        return dict(result[0]) if result is not None else {}
 
     @staticmethod
     def get_by_id(project_id: str) -> Optional[dict]:
@@ -99,6 +111,38 @@ class ProjectRepository:
             "UPDATE projects SET last_commit = %s, updated_at = NOW() WHERE id = %s",
             (commit_hash, project_id)
         )
+        
+    @staticmethod
+    def find(
+        name: str,
+        owner: Optional[str] = None,
+        repo_type: Optional[str] = None,
+        repo_url: Optional[str] = None,
+    ) -> Optional[dict]:
+        """纯查询项目，不存在返回 None（不建行）。
+
+        供读路径使用：GET 请求不应产生写副作用。
+        """
+        if repo_url:
+            rows = sync_conn.execute(
+                "SELECT * FROM projects WHERE repo_url = %s", (repo_url,)
+            )
+            if rows:
+                return dict(rows[0])
+
+        conditions = ["name = %s"]
+        params: List[Any] = [name]
+        if owner:
+            conditions.append("owner = %s")
+            params.append(owner)
+        if repo_type:
+            conditions.append("repo_type = %s")
+            params.append(repo_type)
+        rows = sync_conn.execute(
+            f"SELECT * FROM projects WHERE {' AND '.join(conditions)}",
+            tuple(params),
+        )
+        return dict(rows[0]) if rows else None
 
 
 # ============================================================
@@ -530,6 +574,22 @@ class WikiPageRepository:
             )
         return dict(result[0]) if result else None
 
+    @staticmethod
+    def link_cache_id(
+        project_id: str,
+        wiki_cache_id: str,
+        language: str = "zh",
+        is_comprehensive: bool = False,
+    ) -> int:
+        """ 用于 api/wiki_cache 端点的 save 方法中对 wiki_cache_id 的更新 """
+        result = sync_conn.execute(
+            "UPDATE wiki_pages SET wiki_cache_id = %s"
+            "WHERE project_id = %s AND language = %s AND is_comprehensive = %s"
+            "AND wiki_cache_id IS DISTINCT FROM %s",
+            (wiki_cache_id, project_id, language, is_comprehensive, wiki_cache_id)
+        )
+        return len(result) if result else 0 
+    
     @staticmethod
     def delete_by_project(project_id: str):
         """删除项目的所有 Wiki 页面"""
