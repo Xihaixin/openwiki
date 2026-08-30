@@ -135,7 +135,7 @@ async def get_processed_projects():
             try:
                 project_entries.append(
                     ProcessedProjectEntry(
-                        id=entry.get("id", ""),
+                        id=entry.get("id", ""),  # project_id
                         owner=entry.get("owner", "unknown"),
                         repo=entry.get("repo", ""),
                         name=entry.get("name", ""),

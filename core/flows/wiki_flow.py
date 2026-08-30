@@ -19,8 +19,9 @@ wiki_flow.py — Wiki 文档生成流
   - core.ingestion.ingestor — DataIngestor（自动触发）
 """
 
-import logging
 import re
+import uuid
+import logging
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -521,7 +522,9 @@ Return ONLY valid XML with this exact structure:
 
     def _parse_page_element(self, page_el: ET.Element) -> WikiPage:
         """解析 XML <page> 元素为 WikiPage 对象"""
-        page_id = self._extract_tag_text(page_el, "id") or f"page-{len(self.generated_pages)}"
+        # page_id = self._extract_tag_text(page_el, "id") or f"page-{len(self.generated_pages)}"
+        raw_id = self._extract_tag_text(page_el, "id")
+        page_id = raw_id if raw_id is not None else f"page-{uuid.uuid4().hex[:6]}"
         title = self._extract_tag_text(page_el, "title") or page_id
         importance = self._extract_tag_text(page_el, "importance") or "medium"
 
