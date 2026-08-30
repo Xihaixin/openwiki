@@ -69,9 +69,9 @@ class WikiCacheManager:
         cached = redis_client.get(redis_key)
         if cached is not None:
             try:
-                data = json.loads(str(cached))
-                logger.debug(f"Wiki cache HIT (Redis): {project_id}/{language}/{comprehensive}")
-                return data
+                if isinstance(cached, dict):
+                    logger.debug(f"Wiki cache HIT (Redis): {project_id}/{language}/{comprehensive}")
+                    return cached
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -313,7 +313,7 @@ class DbRedisWikiCacheStorage:
         self, owner: str, repo: str, repo_type: str,
     ) -> Optional[str]:
         """将 (owner, repo, repo_type) 解析为 project_id"""
-        project = ProjectRepository.get_or_create(
+        project = ProjectRepository.find(
             name=repo, owner=owner, repo_type=repo_type,
         )
         return str(project["id"]) if project else None
@@ -404,18 +404,13 @@ class DbRedisWikiCacheStorage:
                 model=payload.get("model"),
             )
 
-            # 逐页持久化到 wiki_pages（带 wiki_cache_id 溯源）
-            generated_pages = payload.get("generated_pages") or {}
-            for slug, page in generated_pages.items():
-                WikiPageRepository.upsert(
-                    project_id=project_id,
-                    page_slug=slug,
-                    title=page.get("title", slug),
-                    content_md=page.get("content", ""),
-                    language=language,
-                    is_comprehensive=comprehensive,
-                    wiki_cache_id=record_id,
-                )
+            influence_count = WikiCacheRepository.link_cache_id(
+                project_id = project_id,
+                wiki_cache_id = record_id,
+                language = language,
+                is_comrehensive = comprehensive,
+            )
+            logger.info(f"wiki_pages has {influence_count} been updated.")
             return True
         except Exception as e:
             logger.error(f"Failed to save wiki cache to DB/Redis: {e}", exc_info=True)
