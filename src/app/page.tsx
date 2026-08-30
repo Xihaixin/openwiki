@@ -546,7 +546,7 @@ export default function Home() {
             <div className="grid grid-cols-1 gap-3 text-xs text-[var(--muted)]">
               <div
                 className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
-              >https://github.com/Xihaixin/openwiki-study
+              >https://github.com/Xihaixin/openwiki
               </div>
               <div
                 className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
@@ -554,7 +554,7 @@ export default function Home() {
               </div>
               <div
                 className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
-              >Xihaixin/openwiki-study
+              >Xihaixin/openwiki
               </div>
               <div
                 className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
