@@ -174,7 +174,6 @@ class BaseFlow:
         provider: str = "dashscope",
         model: str = "qwen-plus",
         language: str = "zh",
-        use_database: bool = True,
         local_path: Optional[str] = None,
         use_proxy: Optional[bool] = None,
     ):
@@ -184,18 +183,17 @@ class BaseFlow:
             provider: LLM 提供者
             model: 模型名称
             language: 语言代码
-            use_database: 是否使用数据库
             local_path: 本地仓库路径
             use_proxy:
                 - True: 强制启用代理
                 - False: 强制禁用代理
                 - None（默认）: 自动检测（检查 OPENWIKI_GIT_PROXY 环境变量）
         """
+        self.project_id = ""
         self.repo_url = repo_url
         self.provider = provider
         self.model = model
         self.language = language
-        self.use_database = use_database
         self.local_path = local_path
         self.use_proxy = use_proxy
 
@@ -268,7 +266,7 @@ class BaseFlow:
         初始化 RAG 检索器。
 
         使用 PgvectorRetriever 进行混合检索（向量 + 关键词）。
-        如果 use_database=False 或未找到 project_id，则跳过。
+        如果未找到 project_id，则跳过。
 
         参数:
             top_k: 检索返回的 top-k 结果数
@@ -276,9 +274,6 @@ class BaseFlow:
         返回:
             PgvectorRetriever 实例，失败则返回 None
         """
-        if not self.use_database:
-            logger.info("跳过 RAG 检索器初始化（use_database=False）")
-            return None
 
         # 如果还没有 project_id，尝试查找
         if not self.project_id:

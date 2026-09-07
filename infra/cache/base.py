@@ -6,8 +6,7 @@ Wiki 数据存储抽象接口
   属于持久化结果，而非可丢弃的中间产物。
 - Redis 仅作为应用运行过程中"生成 Wiki / 加载历史 Wiki"的**运行期缓存**。
 
-因此存储层抽象为 `WikiCacheStorage` 接口，当前提供两种实现：
-- `FileSystemWikiCacheStorage`（infra.cache.filesystem）：文件系统，当前默认，行为向后兼容
+因此存储层抽象为 `WikiCacheStorage` 接口：
 - `DbRedisWikiCacheStorage`（infra.cache.wiki_cache）：PostgreSQL 持久化 + Redis 运行期缓存，生产形态
 
 调用方（api / core.flows）只依赖此接口，通过配置或 DI 选择实现。
@@ -24,6 +23,7 @@ class WikiCacheStorage(Protocol):
 
     def read(
         self,
+        id: str,
         owner: str,
         repo: str,
         repo_type: str,
@@ -36,8 +36,6 @@ class WikiCacheStorage(Protocol):
     def save(
         self,
         payload: Dict[str, Any],
-        language: str,
-        comprehensive: bool = False,
     ) -> bool:
         """保存已生成的 Wiki。
 
