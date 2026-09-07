@@ -51,8 +51,7 @@ class WikiGenerationFlow(BaseFlow):
       1. fetch_repository_structure()  → 获取文件树和 README
       2. determine_wiki_structure()    → 调用 LLM 确定 Wiki 结构
       3. _generate_all_pages()         → 逐页生成 Wiki 页面内容
-      4. _save_to_database()           → 持久化到 wiki_pages 表
-      5. print_summary()               → 打印结果摘要
+      4. print_summary()               → 打印结果摘要
 
     对应前端 page.tsx 中的:
       - fetchRepositoryStructure()
@@ -67,7 +66,6 @@ class WikiGenerationFlow(BaseFlow):
         model: str = "qwen-plus",
         language: str = "zh",
         comprehensive: bool = False,
-        use_database: bool = True,
         local_path: Optional[str] = None,
         use_proxy: Optional[bool] = None,
     ):
@@ -78,7 +76,6 @@ class WikiGenerationFlow(BaseFlow):
             model: 模型名称
             language: 语言代码
             comprehensive: 是否生成综合 Wiki
-            use_database: 是否使用数据库
             local_path: 本地仓库路径
             use_proxy:
                 - True: 强制启用代理
@@ -91,7 +88,6 @@ class WikiGenerationFlow(BaseFlow):
             provider=provider,
             model=model,
             language=language,
-            use_database=use_database,
             local_path=local_path,
             use_proxy=use_proxy,
         )
@@ -125,7 +121,7 @@ class WikiGenerationFlow(BaseFlow):
 
     # ── 步骤 1: 获取仓库结构 ──────────────────────────────────────────────
 
-    def fetch_repository_structure(self,token:Optional[str]=None) -> Tuple[str, str]:
+    def fetch_repository_structure(self,token:Optional[str]=None) -> Tuple[str, str, str]:
         """
         获取仓库文件树和 README 内容。
 
@@ -135,70 +131,58 @@ class WikiGenerationFlow(BaseFlow):
           - Bitbucket: GET https://api.bitbucket.org/2.0/repositories/{owner}/{repo}/src
           - 本地: GET /local_repo/structure?path=...
 
-        本实现支持两种模式:
-          1. use_database=True  → 从 PostgreSQL 数据库查询已有数据；
-             如果数据库无数据，自动触发 DataIngestor 摄取管道
-          2. use_database=False → 使用 fixtures 中的样本数据
         """
         logger.info("=" * 60)
         logger.info("步骤 1: 获取仓库结构 (fetch_repository_structure)")
         logger.info("=" * 60)
 
-        # 默认为 True
-        if self.use_database:
-            logger.info("尝试从数据库获取仓库结构...")
-            result = self._fetch_from_database()  # 该函数返回的 filetree 和 readme 文件是手动构建出来的
-            if result is not None:
-                self.file_tree, self.readme = result
-                logger.info(f"✓ 从数据库获取文件树 ({len(self.file_tree)} 字符)")
-                logger.info(f"✓ 从数据库获取 README ({len(self.readme)} 字符)")
-                return self.file_tree, self.readme
+        logger.info("尝试从数据库获取仓库结构...")
+        result = self._fetch_from_database()  # 该函数返回的 filetree 和 readme 文件是手动构建出来的
+        if result is not None:
+            self.file_tree, self.readme, _ = result
+            logger.info(f"✓ 从数据库获取文件树 ({len(self.file_tree)} 字符)")
+            logger.info(f"✓ 从数据库获取 README ({len(self.readme)} 字符)")
+            return self.file_tree, self.readme, self.project_id
 
-            # ── 数据库无数据，自动触发数据摄取管道 ──
-            logger.warning("数据库中无此项目数据，自动触发数据摄取 (DataIngestor)...")
-            logger.info("=" * 50)
+        # ── 数据库无数据，自动触发数据摄取管道 ──
+        logger.warning("数据库中无此项目数据，自动触发数据摄取 (DataIngestor)...")
+        logger.info("=" * 50)
 
-            ingestor = DataIngestor(
-                repo_url=self.repo_url,
-                repo_type=self.repo_type,
-                access_token=None,
-                local_path=self.local_path,
-                token=token,
-                use_proxy=self.use_proxy,
-            )
-            project_id = ingestor.run()
-
-            if not project_id:
-                logger.error("❌ 数据摄取失败，无法继续 Wiki 生成")
-                raise RuntimeError(
-                    f"数据摄取失败 (repo_url={self.repo_url}, local_path={self.local_path})。"
-                    f"请先确保数据摄取已完成。"
-                )
-
-            self.project_id = project_id
-            logger.info(f"✓ 数据摄取完成 (project_id={project_id})")
-            logger.info("=" * 50)
-
-            # 重新从数据库获取仓库结构
-            logger.info("重新从数据库获取仓库结构...")
-            result = self._fetch_from_database()
-            if result is not None:
-                self.file_tree, self.readme = result
-                logger.info(f"✓ 从数据库获取文件树 ({len(self.file_tree)} 字符)")
-                logger.info(f"✓ 从数据库获取 README ({len(self.readme)} 字符)")
-                return self.file_tree, self.readme
-            else:
-                logger.error("❌ 数据摄取后仍无法从数据库获取仓库结构")
-                raise RuntimeError("数据摄取后数据库查询仍然失败")
-
-        # 没有数据库回退，抛出异常
-        raise RuntimeError(
-            f"数据库中无此项目数据 (repo_url={self.repo_url})，"
-            f"且 use_database=False 模式已不再支持样本数据回退。"
-            f"请确保数据摄取已完成。"
+        ingestor = DataIngestor(
+            repo_url=self.repo_url,
+            repo_type=self.repo_type,
+            access_token=None,
+            local_path=self.local_path,
+            token=token,
+            use_proxy=self.use_proxy,
         )
+        project_id = ingestor.run()
 
-    def _fetch_from_database(self) -> Optional[Tuple[str, str]]:
+        if not project_id:
+            logger.error("❌ 数据摄取失败，无法继续 Wiki 生成")
+            raise RuntimeError(
+                f"数据摄取失败 (repo_url={self.repo_url}, local_path={self.local_path})。"
+                f"请先确保数据摄取已完成。"
+            )
+
+        self.project_id = project_id
+        logger.info(f"✓ 数据摄取完成 (project_id={project_id})")
+        logger.info("=" * 50)
+
+        # 重新从数据库获取仓库结构
+        logger.info("重新从数据库获取仓库结构...")
+        result = self._fetch_from_database()
+        if result is not None:
+            self.file_tree, self.readme, _ = result
+            logger.info(f"✓ 从数据库获取文件树 ({len(self.file_tree)} 字符)")
+            logger.info(f"✓ 从数据库获取 README ({len(self.readme)} 字符)")
+            return (self.file_tree, self.readme, self.project_id)
+        else:
+            logger.error("❌ 数据摄取后仍无法从数据库获取仓库结构")
+            raise RuntimeError("数据摄取后数据库查询仍然失败")
+
+
+    def _fetch_from_database(self) -> Optional[Tuple[str, str, str]]:
         """
         从 PostgreSQL 数据库查询项目数据。
 
@@ -241,7 +225,7 @@ class WikiGenerationFlow(BaseFlow):
             file_tree = "\n".join(file_tree_lines)
             readme = readme_content or "# No README found"
 
-            return file_tree, readme
+            return file_tree, readme, self.project_id
 
         except Exception as e:
             logger.error(f"从数据库获取数据失败: {e}", exc_info=True)
@@ -674,9 +658,6 @@ Return ONLY valid XML with this exact structure:
         使用项目中已有的 PgvectorRetriever 进行混合检索。
         对应原始项目 websocket_wiki.py 中 request_rag.prepare_retriever() 的逻辑。
         """
-        if not self.use_database:
-            logger.info("  跳过 RAG 检索器初始化（use_database=False）")
-            return None
 
         if not self.project_id:
             logger.warning("  project_id 为空，无法初始化检索器")
@@ -711,7 +692,7 @@ Return ONLY valid XML with this exact structure:
         Returns:
             Dict[str, str] — file_path → content 的映射
         """
-        if not self.use_database or not self.project_id:
+        if not self.project_id:
             return {}
 
         try:
@@ -792,7 +773,7 @@ Return ONLY valid XML with this exact structure:
 
         # ── 2. RAG 检索相关代码片段（对应原始项目的 request_rag(rag_query)） ──
         context_text = ""
-        if self.use_database and self.project_id:
+        if self.project_id:
             try:
                 retriever = self._init_retriever()
                 if retriever:
@@ -909,64 +890,61 @@ Return ONLY valid XML with this exact structure:
         content = re.sub(r'\n```\s*$', '', content)
         return content.strip()
 
-    # ── 步骤 4: 保存到数据库 ──────────────────────────────────────────────
+    # # ── 步骤 4: 保存到数据库 ──────────────────────────────────────────────
 
-    def _save_to_database(self) -> int:
-        """
-        将生成的 Wiki 页面持久化到 wiki_pages 表。
+    # def _save_to_database(self) -> int:
+    #     """
+    #     将生成的 Wiki 页面持久化到 wiki_pages 表。
 
-        使用 WikiPageRepository.upsert() 写入每条页面记录，
-        (project_id, page_slug, language, is_comprehensive) 唯一约束确保幂等性。
+    #     使用 WikiPageRepository.upsert() 写入每条页面记录，
+    #     (project_id, page_slug, language, is_comprehensive) 唯一约束确保幂等性。
 
-        Returns:
-            int: 保存的页面数
-        """
-        if not self.use_database:
-            logger.info("跳过数据库保存（use_database=False）")
-            return 0
+    #     Returns:
+    #         int: 保存的页面数
+    #     """
 
-        if not self.project_id:
-            logger.warning("project_id 为空，无法保存 Wiki 页面到数据库")
-            return 0
+    #     if not self.project_id:
+    #         logger.warning("project_id 为空，无法保存 Wiki 页面到数据库")
+    #         return 0
 
-        if not self.generated_pages:
-            logger.warning("没有已生成的页面，跳过数据库保存")
-            return 0
+    #     if not self.generated_pages:
+    #         logger.warning("没有已生成的页面，跳过数据库保存")
+    #         return 0
 
-        if not self.wiki_structure or not self.wiki_structure.pages:
-            logger.warning("wiki_structure 为空，跳过数据库保存")
-            return 0
+    #     if not self.wiki_structure or not self.wiki_structure.pages:
+    #         logger.warning("wiki_structure 为空，跳过数据库保存")
+    #         return 0
 
-        saved_count = 0
-        logger.info("=" * 60)
-        logger.info("步骤 4: 保存 Wiki 页面到数据库 (_save_to_database)")
-        logger.info("=" * 60)
+    #     saved_count = 0
+    #     logger.info("=" * 60)
+    #     logger.info("步骤 4: 保存 Wiki 页面到数据库 (_save_to_database)")
+    #     logger.info("=" * 60)
 
-        for page in self.wiki_structure.pages:
-            content_md = self.generated_pages.get(page.id)
-            if not content_md:
-                logger.warning(f"  跳过页面 '{page.title}'（无内容）")
-                continue
+    #     for page in self.wiki_structure.pages:
+    #         content_md = self.generated_pages.get(page.id)
+    #         if not content_md:
+    #             logger.warning(f"  跳过页面 '{page.title}'（无内容）")
+    #             continue
 
-            try:
-                page_id = WikiPageRepository.upsert(
-                    project_id=self.project_id,
-                    page_slug=page.id,
-                    title=page.title,
-                    content_md=content_md,
-                    language=self.language,
-                    is_comprehensive=self.comprehensive,
-                    provider=self.provider,
-                    model=self.model,
-                    source_chunks=None,  # 暂不记录来源分块
-                )
-                saved_count += 1
-                logger.info(f"  ✓ 已保存: {page.title} ({page.id}) → id={page_id}")
-            except Exception as e:
-                logger.error(f"  ✗ 保存失败: {page.title} ({page.id}): {e}")
+    #         try:
+    #             page_id = WikiPageRepository.upsert(
+    #                 project_id=self.project_id,
+    #                 page_slug=page.id,
+    #                 title=page.title,
+    #                 content_md=content_md,
+    #                 language=self.language,
+    #                 is_comprehensive=self.comprehensive,
+    #                 provider=self.provider,
+    #                 model=self.model,
+    #                 source_chunks=None,  # 暂不记录来源分块
+    #             )
+    #             saved_count += 1
+    #             logger.info(f"  ✓ 已保存: {page.title} ({page.id}) → id={page_id}")
+    #         except Exception as e:
+    #             logger.error(f"  ✗ 保存失败: {page.title} ({page.id}): {e}")
 
-        logger.info(f"\n✓ 共保存 {saved_count}/{len(self.wiki_structure.pages)} 个页面到 wiki_pages 表")
-        return saved_count
+    #     logger.info(f"\n✓ 共保存 {saved_count}/{len(self.wiki_structure.pages)} 个页面到 wiki_pages 表")
+    #     return saved_count
 
     # ── 步骤 5: 打印结果摘要 ──────────────────────────────────────────────
 
@@ -1046,8 +1024,7 @@ Return ONLY valid XML with this exact structure:
           1. fetch_repository_structure()
           2. determine_wiki_structure()
           3. _generate_all_pages()
-          4. _save_to_database()
-          5. print_summary()
+          4. print_summary()
 
         Returns:
             Dict with keys: wiki_structure, generated_pages, saved_count
@@ -1055,11 +1032,9 @@ Return ONLY valid XML with this exact structure:
         self.fetch_repository_structure()
         await self.determine_wiki_structure()
         await self._generate_all_pages()
-        saved = self._save_to_database()
         self.print_summary()
 
         return {
             "wiki_structure": self.wiki_structure,
             "generated_pages": self.generated_pages,
-            "saved_count": saved,
         }

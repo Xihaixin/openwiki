@@ -41,6 +41,7 @@ wiki_cache_service = WikiCacheService()
 
 @router.get("/api/wiki_cache", response_model=Optional[WikiCacheData])
 async def get_cached_wiki(
+    projectId: str = Query(..., description="project id"),
     owner: str = Query(..., description="Repository owner"),
     repo: str = Query(..., description="Repository name"),
     repo_type: str = Query(..., description="Repository type (e.g., github, gitlab)"),
@@ -53,12 +54,16 @@ async def get_cached_wiki(
         language = configs.get("lang", {}).get("default", "en")
 
     logger.info(f"Retrieving wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cached_data = wiki_cache_service.read(owner, repo, repo_type, language, comprehensive)
+    cached_data = wiki_cache_service.read(projectId, owner, repo, repo_type, language, comprehensive)
     if cached_data:
         return WikiCacheData(**cached_data)
     else:
-        logger.info(f"Wiki cache not found for {owner}/{repo} ({repo_type}), lang: {language}")
-        return None
+        if projectId:
+            logger.info(f"Wiki cache not found for {projectId}")
+            logger.info(f"The detail is: {owner}/{repo} ({repo_type}), lang: {language}")
+            return None
+        else:
+            logger.info(f"The project id is null, check the application...")
 
 
 @router.post("/api/wiki_cache")
@@ -73,13 +78,16 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
         f"({request_data.repo.type}), lang: {request_data.language}"
     )
     payload = WikiCacheData(
+        project_id=request_data.porject_id,
+        language=request_data.language,
+        comprehensive=request_data.comprehensive,
         wiki_structure=request_data.wiki_structure,
         generated_pages=request_data.generated_pages,
         repo=request_data.repo,
         provider=request_data.provider,
         model=request_data.model,
     ).model_dump()
-    success = wiki_cache_service.save(payload, language=request_data.language, comprehensive=request_data.comprehensive)
+    success = wiki_cache_service.save(payload)
     if success:
         return {"message": "Wiki cache saved successfully"}
     else:

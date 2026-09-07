@@ -20,29 +20,23 @@ core.services.wiki_cache — Wiki 缓存业务服务
 from typing import Any, Dict, List, Optional
 
 from infra.cache.base import WikiCacheStorage
-from infra.cache.filesystem import FileSystemWikiCacheStorage
-from infra.config.settings import settings
 from infra.db.repository import ProjectRepository
 
 
 class WikiCacheService:
-    """Wiki 缓存业务服务"""
+    """Wiki 数据存储与缓存业务服务"""
 
     def __init__(self, storage: Optional[WikiCacheStorage] = None):
-        # 按 CACHE_BACKEND 配置选择存储实现：filesystem（默认，向后兼容）| db_redis（生产形态）
         if storage is None:
-            if settings.cache.backend == "db_redis":
-                from infra.cache.wiki_cache import DbRedisWikiCacheStorage
-
-                storage = DbRedisWikiCacheStorage()
-            else:
-                storage = FileSystemWikiCacheStorage()
+            from infra.cache.wiki_cache import DbRedisWikiCacheStorage
+            storage = DbRedisWikiCacheStorage()
         self._storage = storage
 
     # ── 缓存 CRUD ──────────────────────────────────────────────
 
     def read(
         self,
+        id:str,
         owner: str,
         repo: str,
         repo_type: str,
@@ -50,16 +44,14 @@ class WikiCacheService:
         comprehensive: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """读取已生成的 Wiki（结构 + 页面）。未命中返回 None。"""
-        return self._storage.read(owner, repo, repo_type, language, comprehensive)
+        return self._storage.read(id, owner, repo, repo_type, language, comprehensive)
 
     def save(
         self,
         payload: Dict[str, Any],
-        language: str,
-        comprehensive: bool = False,
     ) -> bool:
         """保存已生成的 Wiki。返回是否保存成功。"""
-        return self._storage.save(payload, language=language, comprehensive=comprehensive)
+        return self._storage.save(payload)
 
     def delete(self, owner: str, repo: str, repo_type: str, language: str) -> bool:
         """删除指定 Wiki。返回是否确实删除了内容。"""

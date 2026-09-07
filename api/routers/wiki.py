@@ -94,7 +94,6 @@ async def generate_wiki(request: WikiGenerateRequest):
             model=request.model or "qwen-plus",
             language=request.language,
             comprehensive=request.comprehensive,
-            use_database=True,
             local_path=request.local_path,
         )
 
@@ -106,7 +105,7 @@ async def generate_wiki(request: WikiGenerateRequest):
                     "message": "正在获取仓库文件结构...",
                 })
  
-                file_tree, readme = flow.fetch_repository_structure(token=request.token)
+                file_tree, readme, project_id = flow.fetch_repository_structure(token=request.token)
 
                 yield _sse_event("progress", {
                     "step": "fetch_structure_done",
@@ -174,19 +173,11 @@ async def generate_wiki(request: WikiGenerateRequest):
                         "content_length": len(content),
                     })
 
-                # 步骤 4: 保存到数据库
-                yield _sse_event("progress", {
-                    "step": "saving_to_database",
-                    "message": "正在保存到数据库...",
-                })
-
-                saved_count = flow._save_to_database()
-
                 # 完成
                 yield _sse_event("complete", {
                     "message": "Wiki 生成完成",
+                    "project_id": project_id,
                     "total_pages": total_pages,
-                    "saved_count": saved_count,
                     "wiki_structure_id": wiki_structure.id,
                     "wiki_structure_title": wiki_structure.title,
                 })
@@ -230,7 +221,6 @@ async def generate_wiki_page(request: WikiPageGenerateRequest):
             model=request.model or "qwen-plus",
             language=request.language,
             comprehensive=True,
-            use_database=True,
         )
 
         # 设置文件树和 README（如果提供）

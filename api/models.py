@@ -69,16 +69,20 @@ class WikiStructureModel(BaseModel):
 
 class WikiCacheData(BaseModel):
     """Wiki 缓存数据"""
+    project_id:str
+    repo: Optional[RepoInfo] = None
+    language: str
+    comprehensive: bool
     wiki_structure: WikiStructureModel
     generated_pages: Dict[str, WikiPage]
     repo_url: Optional[str] = None
-    repo: Optional[RepoInfo] = None
     provider: Optional[str] = None
     model: Optional[str] = None
 
 
 class WikiCacheRequest(BaseModel):
     """Wiki 缓存请求"""
+    porject_id: str
     repo: RepoInfo
     language: str
     comprehensive: bool
