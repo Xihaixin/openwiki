@@ -78,7 +78,7 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
         f"({request_data.repo.type}), lang: {request_data.language}"
     )
     payload = WikiCacheData(
-        project_id=request_data.porject_id,
+        project_id=request_data.project_id,
         language=request_data.language,
         comprehensive=request_data.comprehensive,
         wiki_structure=request_data.wiki_structure,

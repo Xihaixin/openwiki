@@ -82,7 +82,7 @@ class WikiCacheData(BaseModel):
 
 class WikiCacheRequest(BaseModel):
     """Wiki 缓存请求"""
-    porject_id: str
+    project_id: str
     repo: RepoInfo
     language: str
     comprehensive: bool
