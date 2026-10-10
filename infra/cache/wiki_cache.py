@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from infra.cache.redis_client import redis_client
 from core.config.settings import settings
-from infra.db.repository import (
+from core.models.repository import (
     ProjectRepository,
     WikiCacheRepository,
     WikiPageRepository,

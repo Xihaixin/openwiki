@@ -63,7 +63,7 @@ async def lifespan(app):
     # 初始化异步数据库连接池
     _db_pool = None
     try:
-        from infra.db.connection import AsyncDatabasePool
+        from core.models.connection import AsyncDatabasePool
 
         _db_pool = AsyncDatabasePool()
         await _db_pool.init_pool()

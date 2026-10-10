@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.config.settings import settings
-from infra.db.connection import sync_conn
-from infra.db.repository import (
+from core.models.connection import sync_conn
+from core.models.repository import (
     ProjectRepository,
     DocumentRepository,
     ChunkRepository,

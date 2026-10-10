@@ -34,7 +34,7 @@ from core.flows.base import (
 )
 from core.models import WikiPage, WikiSection, WikiStructure
 from infra.cache.key import get_cache_key
-from infra.db.repository import DocumentRepository, WikiPageRepository
+from core.models.repository import DocumentRepository, WikiPageRepository
 from infra.retrieval.pgvector_retriever import PgvectorRetriever
 
 # 数据摄取（自动触发）

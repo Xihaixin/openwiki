@@ -20,7 +20,7 @@ core.services.wiki_cache — Wiki 缓存业务服务
 from typing import Any, Dict, List, Optional
 
 from infra.cache.base import WikiCacheStorage
-from infra.db.repository import ProjectRepository
+from core.models.repository import ProjectRepository
 
 
 class WikiCacheService:

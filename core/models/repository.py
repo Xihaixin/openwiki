@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.config.settings import settings
-from infra.db.connection import sync_conn, async_pool
+from core.models.connection import sync_conn, async_pool
 
 logger = logging.getLogger(__name__)
 

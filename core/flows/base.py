@@ -33,7 +33,7 @@ from core.utils.repo import repo_urls_match
 from core.utils.sse import parse_sse_chunk, call_llm_and_collect
 from core.utils.language import get_language_name as _get_language_name
 from infra.retrieval.pgvector_retriever import PgvectorRetriever
-from infra.db.repository import ProjectRepository
+from core.models.repository import ProjectRepository
 
 logger = logging.getLogger("core.flows.base")
 

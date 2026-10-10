@@ -50,7 +50,7 @@ for _root in [_project_root_via_file, _project_root_via_cwd]:
 from core.config import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
 from core.utils.repo import download_repo
 from core.utils.documents import read_all_documents
-from infra.db.repository import (
+from core.models.repository import (
     ProjectRepository,
     DocumentRepository,
     ChunkRepository,
@@ -387,7 +387,7 @@ class DataIngestor:
             # 兜底：如果 job_id 为 None（prepare 阶段失败），
             # 尝试查找该项目的最后一个 pending 任务并标记为 failed
             try:
-                from infra.db.connection import sync_conn as _conn
+                from core.models.connection import sync_conn as _conn
                 pending_jobs = _conn.execute(
                     """SELECT id FROM ingestion_jobs
                        WHERE project_id = %s AND status = 'pending'
