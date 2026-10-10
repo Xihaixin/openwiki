@@ -35,7 +35,7 @@ from core.flows.base import (
 from core.models import WikiPage, WikiSection, WikiStructure
 from infra.cache.key import get_cache_key
 from infra.db.repository import DocumentRepository, WikiPageRepository
-from infra.integration.deepwiki_adapter import PgvectorRetriever
+from infra.retrieval.deepwiki_adapter import PgvectorRetriever
 
 # 数据摄取（自动触发）
 from core.ingestion.ingestor import DataIngestor
@@ -121,7 +121,7 @@ class WikiGenerationFlow(BaseFlow):
 
     # ── 步骤 1: 获取仓库结构 ──────────────────────────────────────────────
 
-    def fetch_repository_structure(self,token:Optional[str]=None) -> Tuple[str, str, str]:
+    def fetch_repository_structure(self,token:Optional[str]=None) -> Tuple[str, str, str|None]:
         """
         获取仓库文件树和 README 内容。
 
