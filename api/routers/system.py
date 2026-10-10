@@ -15,7 +15,7 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.config import WIKI_AUTH_CODE, WIKI_AUTH_MODE, configs
+from core.config import WIKI_AUTH_CODE, WIKI_AUTH_MODE, configs
 
 logger = logging.getLogger(__name__)
 
