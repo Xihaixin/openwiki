@@ -1,13 +1,12 @@
-# OpenWiki-open
+# OpenWiki
 
-> 毕业设计项目：**透明化 RAG 系统的设计与优化**
 > 包名 `openwiki`，当前版本 `2.0.0`
 
-OpenWiki-open 是在 [deepwiki-open](https://github.com/AsyncFuncAI/deepwiki-open) 基础上重构的「代码仓库 → 智能 Wiki」系统。它保留原项目的产品形态（输入仓库地址，自动生成结构化 Wiki 文档并支持基于仓库的问答），但把底层 RAG 存储彻底换成了 **PostgreSQL + pgvector + Redis**，使检索过程可观测、可管理、可评估。
+OpenWiki 是在 [deepwiki-open](https://github.com/AsyncFuncAI/deepwiki-open) 基础上重构的「代码仓库 → 智能 Wiki」系统。它保留原项目的产品形态（输入仓库地址，自动生成结构化 Wiki 文档并支持基于仓库的问答），但把底层 RAG 存储彻底换成了 **PostgreSQL + pgvector + Redis**，使检索过程可观测、可管理、可评估。
 
 **与原项目的核心差异**
 
-| 维度 | deepwiki-open（原版） | OpenWiki-open（本项目） |
+| 维度 | deepwiki-open（原版） | OpenWiki（本项目） |
 |---|---|---|
 | 向量存储 | FAISS + `.pkl` 本地文件 | PostgreSQL + pgvector（`VECTOR(256)`，HNSW 索引） |
 | 元数据 | 全部塞在 pickle 里 | 17 张关系表（项目/文档/分块/嵌入/任务/日志/缓存） |

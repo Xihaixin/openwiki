@@ -27,3 +27,4 @@ core/config/logs
 
 .aidocs
 .env.example
+.codebuddy
