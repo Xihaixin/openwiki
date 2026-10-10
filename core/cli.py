@@ -32,7 +32,7 @@ load_dotenv()
 
 import os
 
-from core.ingestion.ingestor import DataIngestor, check_project_exists
+from core.utils.ingestor import DataIngestor, check_project_exists
 from core.flows.wiki_flow import WikiGenerationFlow
 from core.flows.chat_flow import SimpleChatFlow
 from core.flows.research_flow import DeepResearchFlow

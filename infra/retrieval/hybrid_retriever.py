@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from infra.config.settings import settings
+from core.config.settings import settings
 from infra.db.connection import sync_conn
 from infra.db.repository import (
     RetrievalRepository,

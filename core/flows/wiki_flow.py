@@ -35,10 +35,10 @@ from core.flows.base import (
 from core.models import WikiPage, WikiSection, WikiStructure
 from infra.cache.key import get_cache_key
 from infra.db.repository import DocumentRepository, WikiPageRepository
-from infra.retrieval.deepwiki_adapter import PgvectorRetriever
+from infra.retrieval.pgvector_retriever import PgvectorRetriever
 
 # 数据摄取（自动触发）
-from core.ingestion.ingestor import DataIngestor
+from core.utils.ingestor import DataIngestor
 
 logger = logging.getLogger("core.flows.wiki")
 

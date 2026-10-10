@@ -94,7 +94,7 @@ async def _call_dashscope_stream(
 ) -> AsyncGenerator[str, None]:
     """调用 DashScope (通义千问) 流式 API"""
     from openai import AsyncOpenAI
-    from infra.config.settings import settings
+    from core.config.settings import settings
 
     api_key = settings.embedding.dashscope_api_key
     if not api_key:

@@ -1,9 +1,4 @@
 """
-deepwiki-open 集成适配器
-
-提供与 deepwiki-open (adalflow_processing.py) 的兼容层，使现有代码
-能够无缝切换到 pgvector 后端，而无需修改原有业务逻辑。
-
 核心功能：
 - PgvectorRetriever — 兼容 FAISSRetriever 接口的检索适配器，用于 WikiGenerationFlow
 
@@ -28,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from infra.config.settings import settings
+from core.config.settings import settings
 from infra.db.connection import sync_conn
 from infra.pipeline.ingestion import Embedder
 from infra.retrieval.hybrid_retriever import (

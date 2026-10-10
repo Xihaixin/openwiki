@@ -23,7 +23,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from infra.config.settings import settings
+from core.config.settings import settings
 
 logger = logging.getLogger("core.config")
 

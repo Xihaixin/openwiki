@@ -23,7 +23,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from infra.cache.embedding_cache import embedding_cache
 from infra.cache.semantic_cache import semantic_cache
-from infra.config.settings import settings
+from core.config.settings import settings
 from infra.db.connection import sync_conn
 from infra.pipeline.ingestion import Embedder
 from infra.retrieval.hybrid_retriever import (

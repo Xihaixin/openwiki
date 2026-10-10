@@ -10,7 +10,7 @@ import logging
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any, AsyncGenerator, Generator, Optional
 
-from infra.config.settings import settings
+from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from infra.config.settings import settings
+from core.config.settings import settings
 from infra.db.connection import sync_conn
 from infra.db.repository import (
     ProjectRepository,

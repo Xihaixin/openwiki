@@ -8,7 +8,7 @@ import uuid
 from typing import Optional
 
 from infra.cache.redis_client import redis_client
-from infra.config.settings import settings
+from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
