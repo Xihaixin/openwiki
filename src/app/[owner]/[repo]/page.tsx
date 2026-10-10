@@ -8,41 +8,13 @@ import ThemeToggle from '@/components/theme-toggle';
 import WikiTreeView from '@/components/WikiTreeView';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { RepoInfo } from '@/types/repoinfo';
+import { WikiPage, WikiSection, WikiStructure } from '@/types/wiki/wikipage';
 import getRepoUrl from '@/utils/getRepoUrl';
 import { fetchSSEStream, SSEEvent } from '@/utils/sseClient';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FaBitbucket, FaBookOpen, FaComments, FaDownload, FaExclamationTriangle, FaFileExport, FaFolder, FaGithub, FaGitlab, FaHome, FaSync, FaTimes } from 'react-icons/fa';
-// Define the WikiSection and WikiStructure types directly in this file
-// since the imported types don't have the sections and rootSections properties
-interface WikiSection {
-  id: string;
-  title: string;
-  pages: string[];
-  subsections?: string[];
-}
-
-interface WikiPage {
-  id: string;
-  title: string;
-  content: string;
-  filePaths: string[];
-  importance: 'high' | 'medium' | 'low';
-  relatedPages: string[];
-  parentId?: string;
-  isSection?: boolean;
-  children?: string[];
-}
-
-interface WikiStructure {
-  id: string;
-  title: string;
-  description: string;
-  pages: WikiPage[];
-  sections: WikiSection[];
-  rootSections: string[];
-}
 
 // Add CSS styles for wiki with Japanese aesthetic
 const wikiStyles = `
@@ -303,6 +275,8 @@ export default function RepoWikiPage() {
             case 'structure': {
               const data = event.data as Record<string, unknown>;
               const pages = (data.pages as Array<Record<string, unknown>>) || [];
+              const sections = (data.sections as Array<Record<string, unknown>>) || [];
+              const rootSections = (data.rootSections as string[]) || [];
 
               const structure: WikiStructure = {
                 id: (data.id as string) || 'wiki',
@@ -315,9 +289,17 @@ export default function RepoWikiPage() {
                   filePaths: (p.filePaths as string[]) || [],
                   importance: (p.importance as 'high' | 'medium' | 'low') || 'medium',
                   relatedPages: (p.relatedPages as string[]) || [],
+                  parentId: (p.parentId as string) || undefined,
+                  isSection: (p.isSection as boolean) || false,
+                  children: (p.children as string[]) || [],
                 })),
-                sections: [],
-                rootSections: [],
+                sections: sections.map((s: Record<string, unknown>) => ({
+                  id: (s.id as string) || '',
+                  title: (s.title as string) || '',
+                  pages: (s.pages as string[]) || [],
+                  subsections: (s.subsections as string[]) || [],
+                })),
+                rootSections,
               };
 
               setWikiStructure(structure);

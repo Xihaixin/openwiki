@@ -2,35 +2,7 @@
 
 import React, { useState } from 'react';
 import { FaChevronRight, FaChevronDown } from 'react-icons/fa';
-
-// Import interfaces from the page component
-interface WikiPage {
-  id: string;
-  title: string;
-  content: string;
-  filePaths: string[];
-  importance: 'high' | 'medium' | 'low';
-  relatedPages: string[];
-  parentId?: string;
-  isSection?: boolean;
-  children?: string[];
-}
-
-interface WikiSection {
-  id: string;
-  title: string;
-  pages: string[];
-  subsections?: string[];
-}
-
-interface WikiStructure {
-  id: string;
-  title: string;
-  description: string;
-  pages: WikiPage[];
-  sections: WikiSection[];
-  rootSections: string[];
-}
+import { WikiStructure } from '@/types/wiki/wikipage';
 
 interface WikiTreeViewProps {
   wikiStructure: WikiStructure;

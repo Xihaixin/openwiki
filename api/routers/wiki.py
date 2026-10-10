@@ -141,6 +141,16 @@ async def generate_wiki(request: WikiGenerateRequest):
                     "title": wiki_structure.title,
                     "description": wiki_structure.description,
                     "pages": pages_info,
+                    "sections": [
+                        {
+                            "id": s.id,
+                            "title": s.title,
+                            "pages": s.pages,
+                            "subsections": s.subsections,
+                        }
+                        for s in wiki_structure.sections
+                    ],
+                    "rootSections": wiki_structure.rootSections,
                     "total_pages": len(wiki_structure.pages),
                 })
 

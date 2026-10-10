@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/theme-toggle';
 import Markdown from '@/components/Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { RepoInfo } from '@/types/repoinfo';
+import { WikiPage, WikiStructure } from '@/types/wiki/wikipage';
 import getRepoUrl from '@/utils/getRepoUrl';
 
 // Helper function to add tokens and other parameters to request body
@@ -78,30 +79,6 @@ export default function WorkshopPage() {
   const [workshopContent, setWorkshopContent] = useState<string>('');
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  // Define a type for the wiki content
-  interface WikiPage {
-    id: string;
-    title: string;
-    content: string;
-    importance: string;
-    filePaths: string[];
-    relatedPages: string[];
-  }
-
-  interface WikiSection {
-    id: string;
-    title: string;
-    pages: string[];
-    subsections: string[];
-  }
-
-  interface WikiStructure {
-    description: string;
-    pages: WikiPage[];
-    sections: WikiSection[];
-    rootSections: string[];
-  }
-
   interface WikiCacheData {
     wiki_structure: WikiStructure;
     generated_pages: Record<string, WikiPage>;

@@ -543,11 +543,14 @@ Return ONLY valid XML with this exact structure:
 
         section = WikiSection(id=section_id, title=title)
 
-        # 解析章节内的页面
+        # 解析章节内的页面，并建立「页面 → 所属章节」的树定位关系
         pages_el = section_el.find("pages")
         if pages_el is not None:
             for page_el in pages_el.findall("page"):
                 page = self._parse_page_element(page_el)
+                # 树定位：page 的父节点即当前 section（isSection 表示 section 类型节点）
+                page.parentId = section_id
+                page.isSection = False
                 structure.pages.append(page)
                 section.pages.append(page.id)
 
