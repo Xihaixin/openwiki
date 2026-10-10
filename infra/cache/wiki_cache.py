@@ -360,9 +360,16 @@ class DbRedisWikiCacheStorage:
         structure_json = record.get("structure_json") or {}
         generated_pages: Dict[str, Any] = {}
 
-        # 判空安全：structure_json 可能无 pages / pages 为空 / 首元素无正文
-        structure_pages = structure_json.get("pages") or []
-        first_page = structure_pages[0] if isinstance(structure_pages, list) and structure_pages else None
+        # 判空安全：structure_json 可能无 pages / pages 为空 / 首元素无正文。
+        # 兼容历史脏数据：pages 可能是 dict（旧 bug 污染）或 list，统一归一为 list。
+        raw_pages = structure_json.get("pages") or []
+        if isinstance(raw_pages, dict):
+            structure_pages = list(raw_pages.values())
+        elif isinstance(raw_pages, list):
+            structure_pages = raw_pages
+        else:
+            structure_pages = []
+        first_page = structure_pages[0] if structure_pages else None
         # 结构内页若携带正文（content 非空），则该结构本身就是完整数据，直接用；
         # 否则说明只存了结构骨架，需回查 wiki_pages 表补全正文。
         has_inline_content = bool(
@@ -378,8 +385,11 @@ class DbRedisWikiCacheStorage:
             pages = WikiPageRepository.get_by_project(project_id)
 
         generated_pages = DbRedisWikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
-        # structure_json.pages 需为前端期望的 Dict[str, WikiPage]，此处替换为页面字典
-        structure_json["pages"] = generated_pages
+
+        # structure_json.pages 必须保持为 list（前端 WikiStructureModel.pages 为 List[WikiPage]，
+        # 用于 find/map/length 遍历）；generated_pages 才是 Dict[str, WikiPage]（按 slug 取正文）。
+        # 注意：不要用 generated_pages(dict) 覆盖 pages(list)，否则触发 pydantic 校验错误。
+        structure_json["pages"] = list(generated_pages.values())
 
         repo_info = {
             "projectId":project_id,
