@@ -75,7 +75,6 @@ class DeepResearchFlow(BaseFlow):
         provider: str = "google",
         model: str = "gemini-2.0-flash-exp",
         language: str = "zh",
-        use_database: bool = True,
         max_iterations: int = 5,
     ):
         # 调用 BaseFlow.__init__ 初始化公共属性
@@ -84,7 +83,6 @@ class DeepResearchFlow(BaseFlow):
             provider=provider,
             model=model,
             language=language,
-            use_database=use_database,
         )
 
         # 研究状态
@@ -112,9 +110,6 @@ class DeepResearchFlow(BaseFlow):
         使用 BaseFlow._find_project_id() 查找 project_id，
         然后创建 RAGEngine 实例。
         """
-        if not self.use_database:
-            logger.info("跳过 RAG 引擎初始化（use_database=False）")
-            return None
 
         if not self.project_id:
             self._find_project_id()

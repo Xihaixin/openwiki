@@ -147,7 +147,6 @@ async def _handle_simple_chat_ws(
             provider=provider,
             model=model or "qwen-plus",
             language=language,
-            use_database=True,
         )
 
         # 真流式：逐块转发 LLM 输出（与 _handle_deep_research_ws 一致）
@@ -197,7 +196,6 @@ async def _handle_deep_research_ws(
             provider=provider,
             model=model or "qwen-plus",
             language=language,
-            use_database=True,
             max_iterations=iterations,
         )
 

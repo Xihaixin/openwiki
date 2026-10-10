@@ -104,16 +104,14 @@ async def run_wiki_mode(args: Any) -> None:
 
     # ── 初始化 Wiki 生成流 ────────────────────────────────────────────────
     # WikiGenerationFlow.fetch_repository_structure() 内部会自动处理：
-    #   1. use_database=True  → 尝试从数据库获取数据
-    #   2. 数据库无数据       → 自动触发 DataIngestor 摄取管道
-    #   3. 摄取完成           → 重新从数据库获取
+    #   1. 数据库无数据       → 自动触发 DataIngestor 摄取管道
+    #   2. 摄取完成           → 重新从数据库获取
     flow = WikiGenerationFlow(
         repo_url=repo_url,
         provider=args.provider,
         model=args.model,
         language=args.language,
         comprehensive=not args.concise,
-        use_database=not args.no_db,
         local_path=args.local_path,
     )
 
@@ -138,7 +136,6 @@ async def run_chat_mode(args: Any) -> None:
         provider=args.provider,
         model=args.model,
         language=args.language,
-        use_database=not args.no_db,
     )
 
     answer = await flow.chat(args.query)
@@ -164,7 +161,6 @@ async def run_research_mode(args: Any) -> None:
         provider=args.provider,
         model=args.model,
         language=args.language,
-        use_database=not args.no_db,
     )
 
     final_answer = await flow.research(args.query)

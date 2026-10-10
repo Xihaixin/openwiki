@@ -143,7 +143,6 @@ async def _handle_simple_chat(
         provider=request.provider,
         model=request.model or "qwen-plus",
         language=request.language or "en",
-        use_database=True,
     )
 
     async def response_stream():
@@ -211,7 +210,6 @@ async def _handle_deep_research(
         provider=request.provider,
         model=request.model or "qwen-plus",
         language=request.language or "en",
-        use_database=True,
         max_iterations=total_iterations,
     )
 

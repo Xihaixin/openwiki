@@ -58,7 +58,6 @@ class SimpleChatFlow(BaseFlow):
         provider: str = "google",
         model: str = "gemini-2.0-flash-exp",
         language: str = "zh",
-        use_database: bool = True,
     ):
         # 调用 BaseFlow.__init__ 初始化公共属性
         super().__init__(
@@ -66,7 +65,6 @@ class SimpleChatFlow(BaseFlow):
             provider=provider,
             model=model,
             language=language,
-            use_database=use_database,
         )
 
         # 对话历史
@@ -87,9 +85,6 @@ class SimpleChatFlow(BaseFlow):
         使用 BaseFlow._find_project_id() 查找 project_id，
         然后创建 RAGEngine 实例。
         """
-        if not self.use_database:
-            logger.info("跳过 RAG 引擎初始化（use_database=False）")
-            return None
 
         # 如果还没有 project_id，尝试查找
         if not self.project_id:
