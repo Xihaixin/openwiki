@@ -147,16 +147,6 @@ class CacheConfig:
 
 
 # ============================================================
-# 存储后端配置
-# ============================================================
-@dataclass
-class StorageConfig:
-    """存储后端配置"""
-    backend: str = os.getenv("STORAGE_BACKEND", "pgvector")  # pgvector 或 faiss
-    faiss_index_path: str = str(PROJECT_ROOT / "vector_stores")
-
-
-# ============================================================
 # 全局配置单例
 # ============================================================
 @dataclass
@@ -169,7 +159,6 @@ class Settings:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
-    storage: StorageConfig = field(default_factory=StorageConfig)
 
     # 日志配置
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

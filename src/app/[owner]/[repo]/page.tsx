@@ -102,6 +102,7 @@ export default function RepoWikiPage() {
   const repo = params.repo as string;
 
   // Extract tokens from search params
+
   const token = searchParams.get('token') || '';
   const localPath = searchParams.get('local_path') ? decodeURIComponent(searchParams.get('local_path') || '') : undefined;
   const repoUrl = searchParams.get('repo_url') ? decodeURIComponent(searchParams.get('repo_url') || '') : undefined;
@@ -130,17 +131,10 @@ export default function RepoWikiPage() {
   // Import language context for translations
   const { messages } = useLanguage();
 
-  // Initialize repo info
-  const repoInfo = useMemo<RepoInfo>(() => ({
-    owner,
-    repo,
-    type: repoType,
-    token: token || null,
-    localPath: localPath || null,
-    repoUrl: repoUrl || null
-  }), [owner, repo, repoType, localPath, repoUrl, token]);
-
   // State variables
+  const [projectId, setProjectId] = useState<string | null>(
+    () => searchParams.get('projectId') || null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>(
     messages.loading?.initializing || 'Initializing wiki generation...'
@@ -153,6 +147,21 @@ export default function RepoWikiPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [currentToken, setCurrentToken] = useState(token); // Track current effective token
+
+
+    // Initialize repo info
+  const repoInfo = useMemo<RepoInfo>(() => ({
+    projectId: projectId || null,
+    owner,
+    repo,
+    type: repoType,
+    token: token || null,
+    localPath: localPath || null,
+    repoUrl: repoUrl || null
+  }), [projectId, owner, repo, repoType, localPath, repoUrl, token]);
+
+
+
   const [effectiveRepoInfo, setEffectiveRepoInfo] = useState(repoInfo); // Track effective repo info with cached data
   const [embeddingError, setEmbeddingError] = useState(false);
 
@@ -189,6 +198,13 @@ export default function RepoWikiPage() {
   const [authRequired, setAuthRequired] = useState<boolean>(false);
   const [authCode, setAuthCode] = useState<string>('');
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+
+  useEffect(()=>{
+    const id = searchParams.get("projectId");
+    if (id){
+      setProjectId(id)
+    }
+  }, [searchParams])
 
   // Add useEffect to handle scroll reset
   useEffect(() => {
@@ -341,6 +357,8 @@ export default function RepoWikiPage() {
             }
 
             case 'complete': {
+              const projectId = event.data.project_id as string;
+              setProjectId(projectId);
               setIsLoading(false);
               setLoadingMessage(undefined);
               break;
@@ -555,16 +573,26 @@ export default function RepoWikiPage() {
       effectRan.current = true; // Set to true immediately to prevent re-entry due to StrictMode
 
       const loadData = async () => {
+          // 新增判断：无 projectId 直接生成
+        if (!projectId) {
+          console.log('No projectId, skipping cache and generating directly');
+          await generateWikiViaSSE();
+          return;
+        }
         // Try loading from server-side cache first
         setLoadingMessage(messages.loading?.fetchingCache || 'Checking for cached wiki...');
         try {
-          const params = new URLSearchParams({
+            // 1. 先构造一个干净的对象，只放确定有值的字段
+          const queryParams: Record<string, string> = {
             owner: effectiveRepoInfo.owner,
             repo: effectiveRepoInfo.repo,
             repo_type: effectiveRepoInfo.type,
             language: language,
             comprehensive: isComprehensiveView.toString(),
-          });
+          };
+          // 现在 projectId 肯定有值，直接添加
+          queryParams.projectId = effectiveRepoInfo.projectId as string;
+          const params = new URLSearchParams(queryParams);
           const response = await fetch(`/api/wiki_cache?${params.toString()}`);
 
           if (response.ok) {
@@ -595,113 +623,113 @@ export default function RepoWikiPage() {
               };
 
               // If sections or rootSections are missing, create intelligent ones based on page titles
-              if (!cachedStructure.sections.length || !cachedStructure.rootSections.length) {
-                const pages = cachedStructure.pages;
-                const sections: WikiSection[] = [];
-                const rootSections: string[] = [];
+              // if (!cachedStructure.sections.length || !cachedStructure.rootSections.length) {
+              //   const pages = cachedStructure.pages;
+              //   const sections: WikiSection[] = [];
+              //   const rootSections: string[] = [];
 
-                // Group pages by common prefixes or categories
-                const pageClusters = new Map<string, WikiPage[]>();
+              //   // Group pages by common prefixes or categories
+              //   const pageClusters = new Map<string, WikiPage[]>();
 
-                // Define common categories that might appear in page titles
-                const categories = [
-                  { id: 'overview', title: 'Overview', keywords: ['overview', 'introduction', 'about'] },
-                  { id: 'architecture', title: 'Architecture', keywords: ['architecture', 'structure', 'design', 'system'] },
-                  { id: 'features', title: 'Core Features', keywords: ['feature', 'functionality', 'core'] },
-                  { id: 'components', title: 'Components', keywords: ['component', 'module', 'widget'] },
-                  { id: 'api', title: 'API', keywords: ['api', 'endpoint', 'service', 'server'] },
-                  { id: 'data', title: 'Data Flow', keywords: ['data', 'flow', 'pipeline', 'storage'] },
-                  { id: 'models', title: 'Models', keywords: ['model', 'ai', 'ml', 'integration'] },
-                  { id: 'ui', title: 'User Interface', keywords: ['ui', 'interface', 'frontend', 'page'] },
-                  { id: 'setup', title: 'Setup & Configuration', keywords: ['setup', 'config', 'installation', 'deploy'] }
-                ];
+              //   // Define common categories that might appear in page titles
+              //   const categories = [
+              //     { id: 'overview', title: 'Overview', keywords: ['overview', 'introduction', 'about'] },
+              //     { id: 'architecture', title: 'Architecture', keywords: ['architecture', 'structure', 'design', 'system'] },
+              //     { id: 'features', title: 'Core Features', keywords: ['feature', 'functionality', 'core'] },
+              //     { id: 'components', title: 'Components', keywords: ['component', 'module', 'widget'] },
+              //     { id: 'api', title: 'API', keywords: ['api', 'endpoint', 'service', 'server'] },
+              //     { id: 'data', title: 'Data Flow', keywords: ['data', 'flow', 'pipeline', 'storage'] },
+              //     { id: 'models', title: 'Models', keywords: ['model', 'ai', 'ml', 'integration'] },
+              //     { id: 'ui', title: 'User Interface', keywords: ['ui', 'interface', 'frontend', 'page'] },
+              //     { id: 'setup', title: 'Setup & Configuration', keywords: ['setup', 'config', 'installation', 'deploy'] }
+              //   ];
 
-                // Initialize clusters with empty arrays
-                categories.forEach(category => {
-                  pageClusters.set(category.id, []);
-                });
+              //   // Initialize clusters with empty arrays
+              //   categories.forEach(category => {
+              //     pageClusters.set(category.id, []);
+              //   });
 
-                // Add an "Other" category for pages that don't match any category
-                pageClusters.set('other', []);
+              //   // Add an "Other" category for pages that don't match any category
+              //   pageClusters.set('other', []);
 
-                // Assign pages to categories based on title keywords
-                pages.forEach((page: WikiPage) => {
-                  const title = page.title.toLowerCase();
-                  let assigned = false;
+              //   // Assign pages to categories based on title keywords
+              //   pages.forEach((page: WikiPage) => {
+              //     const title = page.title.toLowerCase();
+              //     let assigned = false;
 
-                  // Try to find a matching category
-                  for (const category of categories) {
-                    if (category.keywords.some(keyword => title.includes(keyword))) {
-                      pageClusters.get(category.id)?.push(page);
-                      assigned = true;
-                      break;
-                    }
-                  }
+              //     // Try to find a matching category
+              //     for (const category of categories) {
+              //       if (category.keywords.some(keyword => title.includes(keyword))) {
+              //         pageClusters.get(category.id)?.push(page);
+              //         assigned = true;
+              //         break;
+              //       }
+              //     }
 
-                  // If no category matched, put in "Other"
-                  if (!assigned) {
-                    pageClusters.get('other')?.push(page);
-                  }
-                });
+              //     // If no category matched, put in "Other"
+              //     if (!assigned) {
+              //       pageClusters.get('other')?.push(page);
+              //     }
+              //   });
 
-                // Create sections for non-empty categories
-                for (const [categoryId, categoryPages] of pageClusters.entries()) {
-                  if (categoryPages.length > 0) {
-                    const category = categories.find(c => c.id === categoryId) ||
-                                    { id: categoryId, title: categoryId === 'other' ? 'Other' : categoryId.charAt(0).toUpperCase() + categoryId.slice(1) };
+              //   // Create sections for non-empty categories
+              //   for (const [categoryId, categoryPages] of pageClusters.entries()) {
+              //     if (categoryPages.length > 0) {
+              //       const category = categories.find(c => c.id === categoryId) ||
+              //                       { id: categoryId, title: categoryId === 'other' ? 'Other' : categoryId.charAt(0).toUpperCase() + categoryId.slice(1) };
 
-                    const sectionId = `section-${categoryId}`;
-                    sections.push({
-                      id: sectionId,
-                      title: category.title,
-                      pages: categoryPages.map((p: WikiPage) => p.id)
-                    });
-                    rootSections.push(sectionId);
+              //       const sectionId = `section-${categoryId}`;
+              //       sections.push({
+              //         id: sectionId,
+              //         title: category.title,
+              //         pages: categoryPages.map((p: WikiPage) => p.id)
+              //       });
+              //       rootSections.push(sectionId);
 
-                    // Update page parentId
-                    categoryPages.forEach((page: WikiPage) => {
-                      page.parentId = sectionId;
-                    });
-                  }
-                }
+              //       // Update page parentId
+              //       categoryPages.forEach((page: WikiPage) => {
+              //         page.parentId = sectionId;
+              //       });
+              //     }
+              //   }
 
-                // If we still have no sections (unlikely), fall back to importance-based grouping
-                if (sections.length === 0) {
-                  const highImportancePages = pages.filter((p: WikiPage) => p.importance === 'high').map((p: WikiPage) => p.id);
-                  const mediumImportancePages = pages.filter((p: WikiPage) => p.importance === 'medium').map((p: WikiPage) => p.id);
-                  const lowImportancePages = pages.filter((p: WikiPage) => p.importance === 'low').map((p: WikiPage) => p.id);
+              //   // If we still have no sections (unlikely), fall back to importance-based grouping
+              //   if (sections.length === 0) {
+              //     const highImportancePages = pages.filter((p: WikiPage) => p.importance === 'high').map((p: WikiPage) => p.id);
+              //     const mediumImportancePages = pages.filter((p: WikiPage) => p.importance === 'medium').map((p: WikiPage) => p.id);
+              //     const lowImportancePages = pages.filter((p: WikiPage) => p.importance === 'low').map((p: WikiPage) => p.id);
 
-                  if (highImportancePages.length > 0) {
-                    sections.push({
-                      id: 'section-high',
-                      title: 'Core Components',
-                      pages: highImportancePages
-                    });
-                    rootSections.push('section-high');
-                  }
+              //     if (highImportancePages.length > 0) {
+              //       sections.push({
+              //         id: 'section-high',
+              //         title: 'Core Components',
+              //         pages: highImportancePages
+              //       });
+              //       rootSections.push('section-high');
+              //     }
 
-                  if (mediumImportancePages.length > 0) {
-                    sections.push({
-                      id: 'section-medium',
-                      title: 'Key Features',
-                      pages: mediumImportancePages
-                    });
-                    rootSections.push('section-medium');
-                  }
+              //     if (mediumImportancePages.length > 0) {
+              //       sections.push({
+              //         id: 'section-medium',
+              //         title: 'Key Features',
+              //         pages: mediumImportancePages
+              //       });
+              //       rootSections.push('section-medium');
+              //     }
 
-                  if (lowImportancePages.length > 0) {
-                    sections.push({
-                      id: 'section-low',
-                      title: 'Additional Information',
-                      pages: lowImportancePages
-                    });
-                    rootSections.push('section-low');
-                  }
-                }
+              //     if (lowImportancePages.length > 0) {
+              //       sections.push({
+              //         id: 'section-low',
+              //         title: 'Additional Information',
+              //         pages: lowImportancePages
+              //       });
+              //       rootSections.push('section-low');
+              //     }
+              //   }
 
-                cachedStructure.sections = sections;
-                cachedStructure.rootSections = rootSections;
-              }
+              //   cachedStructure.sections = sections;
+              //   cachedStructure.rootSections = rootSections;
+              // }
 
               setWikiStructure(cachedStructure);
               setGeneratedPages(cachedData.generated_pages);
@@ -736,7 +764,7 @@ export default function RepoWikiPage() {
 
     // Clean up function for this effect is not strictly necessary for loadData,
     // but keeping the main unmount cleanup in the other useEffect
-  }, [effectiveRepoInfo, effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, generateWikiViaSSE, messages.loading?.fetchingCache, isComprehensiveView, selectedProviderState, selectedModelState]);
+  }, [projectId, effectiveRepoInfo, effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, generateWikiViaSSE, messages.loading?.fetchingCache, isComprehensiveView, selectedProviderState, selectedModelState]);
 
   // Save wiki to server-side cache when generation is complete
   useEffect(() => {
@@ -762,6 +790,7 @@ export default function RepoWikiPage() {
               rootSections: wikiStructure.rootSections || []
             };
             const dataToCache = {
+              project_id: projectId,
               repo: effectiveRepoInfo,
               language: language,
               comprehensive: isComprehensiveView,
@@ -791,7 +820,7 @@ export default function RepoWikiPage() {
     };
 
     saveCache();
-  }, [isLoading, error, wikiStructure, generatedPages, effectiveRepoInfo, effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, effectiveRepoInfo.repoUrl, repoUrl, language, isComprehensiveView, selectedProviderState, selectedModelState]);
+  }, [projectId, isLoading, error, wikiStructure, generatedPages, effectiveRepoInfo, effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, effectiveRepoInfo.repoUrl, repoUrl, language, isComprehensiveView, selectedProviderState, selectedModelState]);
 
   const handlePageSelect = (pageId: string) => {
     if (currentPageId != pageId) {

@@ -1,4 +1,5 @@
 export interface RepoInfo {
+    projectId: string | null;
     owner: string;
     repo: string;
     type: string;
