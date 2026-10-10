@@ -387,3 +387,5 @@ def load_configs() -> Dict[str, Any]:
         configs["embedder"] = {}
 
     return configs
+
+configs: Dict[str, Any] = get_config()
