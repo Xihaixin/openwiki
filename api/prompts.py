@@ -5,7 +5,7 @@
 新代码应直接导入 core.prompts.rag。
 """
 
-from core.prompts.rag import (
+from core.prompts.prompt_render import (
     RAG_SYSTEM_PROMPT,
     RAG_TEMPLATE,
     SIMPLE_CHAT_SYSTEM_PROMPT,

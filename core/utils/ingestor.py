@@ -58,7 +58,7 @@ from core.models.repository import (
     IngestionJobRepository,
     PipelineLogRepository,
 )
-from infra.pipeline.ingestion import IngestionPipeline
+from core.utils.ingest_pipe import IngestionPipeline
 
 load_dotenv()
 logger = logging.getLogger("core.ingestion.ingestor")

@@ -25,7 +25,7 @@ from infra.cache.embedding_cache import embedding_cache
 from infra.cache.semantic_cache import semantic_cache
 from core.config.settings import settings
 from core.models.connection import sync_conn
-from infra.pipeline.ingestion import Embedder
+from core.utils.ingest_pipe import Embedder
 from infra.retrieval.hybrid_retriever import (
     HybridRetriever,
     RetrievalResult,

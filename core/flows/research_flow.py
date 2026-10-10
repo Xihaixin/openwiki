@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from core.flows.base import BaseFlow, call_llm_and_collect
 from core.models import ResearchStage
-from core.prompts.rag import (
+from core.prompts.prompt_render import (
     SIMPLE_CHAT_SYSTEM_PROMPT,
     DEEP_RESEARCH_FIRST_ITERATION_PROMPT,
     DEEP_RESEARCH_INTERMEDIATE_ITERATION_PROMPT,

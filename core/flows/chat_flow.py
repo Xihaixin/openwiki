@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from core.flows.base import BaseFlow
 from core.models import Message
-from core.prompts.rag import SIMPLE_CHAT_SYSTEM_PROMPT, render_rag_template
+from core.prompts.prompt_render import SIMPLE_CHAT_SYSTEM_PROMPT, render_rag_template
 from core.rag_engine import RAGEngine
 from core.utils.llm import call_llm_stream_raw
 
