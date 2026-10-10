@@ -13,7 +13,7 @@ core.models — 数据模型定义
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 
 @dataclass
@@ -23,7 +23,7 @@ class WikiPage:
     title: str
     content: str = ""
     filePaths: List[str] = field(default_factory=list)
-    importance: str = "medium"  # 'high' | 'medium' | 'low'
+    importance: Literal["high", "medium", "low"] = "medium"
     relatedPages: List[str] = field(default_factory=list)
     parentId: Optional[str] = None
     isSection: bool = False

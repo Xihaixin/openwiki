@@ -18,13 +18,21 @@ from pydantic import BaseModel, Field
 
 
 class WikiPage(BaseModel):
-    """Wiki 页面模型"""
+    """Wiki 页面模型
+
+    与前端 page.tsx 的 WikiPage 接口严格对齐：
+      id / title / content / filePaths / importance / relatedPages
+      parentId / isSection / children —— 用于在目录树中定位页面（所属 section、父节点、子节点）
+    """
     id: str
     title: str
-    content: str
-    filePaths: List[str]
-    importance: str  # high, medium, low
-    relatedPages: List[str] = []  # 相关页面 ID 列表
+    content: str = ""
+    filePaths: List[str] = Field(default_factory=list)
+    importance: Literal["high", "medium", "low"] = "medium"
+    relatedPages: List[str] = Field(default_factory=list)  # 相关页面 ID 列表
+    parentId: Optional[str] = None
+    isSection: bool = False
+    children: List[str] = Field(default_factory=list)
 
 
 class ProcessedProjectEntry(BaseModel):

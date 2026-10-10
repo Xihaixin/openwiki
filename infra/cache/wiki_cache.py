@@ -338,6 +338,9 @@ class DbRedisWikiCacheStorage:
                     "filePaths": p.get("filePaths") or [],
                     "importance": p.get("importance") or "medium",
                     "relatedPages": p.get("relatedPages") or [],
+                    "parentId": p.get("parentId"),
+                    "isSection": p.get("isSection", False),
+                    "children": p.get("children") or [],
                 }
         return generated_pages
 

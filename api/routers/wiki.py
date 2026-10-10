@@ -131,6 +131,9 @@ async def generate_wiki(request: WikiGenerateRequest):
                         "importance": p.importance,
                         "filePaths": p.filePaths,
                         "relatedPages": p.relatedPages,
+                        "parentId": p.parentId,
+                        "isSection": p.isSection,
+                        "children": p.children,
                     })
 
                 yield _sse_event("structure", {
