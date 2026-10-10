@@ -21,21 +21,21 @@
 --       started_at/completed_at/error_detail（repository 实际写入列）
 --   R8. retrieval_logs/retrieval_results/qa_logs/pipeline_logs 恢复原字段名，
 --       按实际调用方逐字段注释
---   R9. wiki_caches 新增 comprehensive 维度 + structure_json 存完整 WikiCacheData
---       payload（含 generated_pages），read 原样返回，前端零拼装错误；
---       wiki_pages 新增 wiki_cache_id 外键 + 唯一约束纳入 is_comprehensive
+--   R9. wiki_structure（原 wiki_caches）新增 is_comprehensive 维度 +
+--       structure_json 存完整 WikiStructure payload，read 原样返回，前端零拼装错误；
+--       wiki_pages 新增 wiki_structure_id 外键 + 唯一约束收敛为 (project_id, page_slug)
 --   R10. embedding_models 增加维度一致性 CHECK：所有模型有效输出维度 = 系统维度 256
 --        （与 VECTOR(256) 物理表对齐），种子模型维度统一为 256
 --   R11. repository_files 以 is_readme 标识 README 文件（is_code + file_ext
 --        已足够区分文件属性，is_text 冗余），默认 FALSE
---   R12. wiki_caches 增加 is_deleted/deleted_at 软删除：删除资源改为标记，
+--   R12. wiki_structure 增加 is_deleted/deleted_at 软删除：删除资源改为标记，
 --        不物理删除（可恢复、可审计），与 repository_files/raw_documents 一致
 --
 -- 配套代码改动（切换默认存储时同步进行）：
---   - WikiCacheRepository.upsert：ON CONFLICT (project_id, language) → (project_id, language, comprehensive)
---   - WikiPageRepository.upsert：ON CONFLICT (project_id, page_slug, language) → 4 列（含 is_comprehensive）
---   - WikiCacheRepository.delete：物理 DELETE → UPDATE is_deleted=TRUE（服务层先清 Redis）
---   - WikiCacheRepository.read/list：查询条件追加 is_deleted=FALSE
+--   - WikiStructureRepository.upsert：ON CONFLICT (project_id, language, is_comprehensive)
+--   - WikiPageRepository.upsert：ON CONFLICT (project_id, page_slug)
+--   - WikiStructureRepository.delete：物理 DELETE → UPDATE is_deleted=TRUE（服务层先清 Redis）
+--   - WikiStructureRepository.read/list：查询条件追加 is_deleted=FALSE
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -386,70 +386,78 @@ CREATE TABLE IF NOT EXISTS qa_logs (
 CREATE INDEX IF NOT EXISTS idx_qa_project ON qa_logs (project_id);
 
 -- ---------------------------------------------------------------------------
--- 14. wiki_caches —— Wiki 结构缓存
---    用途：保存 LLM 生成的技术文档（Wiki 整体结构 + 全部页面内容）
---    写入：前端「保存 Wiki」POST /api/wiki_cache → WikiCacheRepository.upsert
---    重要：structure_json 存【完整 WikiCacheData payload】（wiki_structure +
---          generated_pages + repo + provider + model），读取时原样返回，
+-- 14. wiki_structure —— Wiki 结构（原 wiki_caches，重命名）
+--    用途：保存 LLM 生成的 Wiki 整体结构（目录骨架 + 元数据），
+--          是 wiki_pages 的父级（一个结构对应一套页面）。
+--    写入：前端「保存 Wiki」POST /api/wiki_cache → WikiStructureRepository.upsert
+--    重要：structure_json 存【完整 WikiStructure 结构数据】（pages 骨架 +
+--          sections + rootSections + repo + provider + model），读取时原样返回，
 --          前端（WikiCacheData 模型）零拼装、零字段缺失。
---    comprehensive 维度：concise(精简) / comprehensive(全面) 两套缓存独立，
---          由 UNIQUE(project_id, language, comprehensive) 保证互不覆盖。
---    软删除：删除 Wiki 缓存不物理删行，置 is_deleted=TRUE（可恢复/可审计），
+--    is_comprehensive 维度：concise(精简) / comprehensive(全面) 两套缓存独立，
+--          由 UNIQUE(project_id, language, is_comprehensive) 保证互不覆盖。
+--    provider / model / language 收敛到结构级一份，wiki_pages 不再冗余存储。
+--    软删除：删除 Wiki 结构不物理删行，置 is_deleted=TRUE（可恢复/可审计），
 --           GET/list 查询统一过滤 is_deleted=FALSE
---    ★配套代码：WikiCacheRepository.upsert 的 ON CONFLICT 目标需改为 3 列；
+--    ★配套代码：WikiStructureRepository.upsert 的 ON CONFLICT 目标为 3 列
+--          （project_id, language, is_comprehensive）；
 --               delete 改 UPDATE is_deleted=TRUE；read/list 过滤 is_deleted=FALSE
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS wiki_caches (
-    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id     UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    language       VARCHAR(16) NOT NULL DEFAULT 'zh',      -- Wiki 语言
-    comprehensive  BOOLEAN NOT NULL DEFAULT TRUE,          -- FALSE=concise, TRUE=comprehensive
-    structure_json JSONB NOT NULL DEFAULT '{}',            -- 完整 WikiCacheData payload
-    repo_owner     VARCHAR(255),                           -- 冗余仓库归属（列表页免 JOIN）
-    repo_name      VARCHAR(255),                           -- 冗余仓库名
-    repo_type      VARCHAR(50) NOT NULL DEFAULT 'github',
-    repo_url       TEXT,
-    provider       VARCHAR(50),                            -- LLM 提供商
-    model          VARCHAR(100),                           -- LLM 模型
-    is_deleted     BOOLEAN NOT NULL DEFAULT FALSE,         -- 软删除标记（TRUE=已删除，不物理删行）
-    deleted_at     TIMESTAMPTZ,                            -- 软删除时间（审计用）
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_wiki_caches UNIQUE (project_id, language, comprehensive)
+CREATE TABLE IF NOT EXISTS wiki_structure (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id       UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    language         VARCHAR(16) NOT NULL DEFAULT 'zh',      -- Wiki 语言
+    is_comprehensive BOOLEAN NOT NULL DEFAULT TRUE,          -- FALSE=concise, TRUE=comprehensive
+    structure_json   JSONB NOT NULL DEFAULT '{}',            -- 完整 WikiStructure 结构 payload
+    repo_owner       VARCHAR(255),                           -- 冗余仓库归属（列表页免 JOIN）
+    repo_name        VARCHAR(255),                           -- 冗余仓库名
+    repo_type        VARCHAR(50) NOT NULL DEFAULT 'github',
+    repo_url         TEXT,
+    provider         VARCHAR(50),                            -- LLM 提供商
+    model            VARCHAR(100),                           -- LLM 模型
+    is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,         -- 软删除标记（TRUE=已删除，不物理删行）
+    deleted_at       TIMESTAMPTZ,                            -- 软删除时间（审计用）
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_wiki_structure UNIQUE (project_id, language, is_comprehensive)
 );
 
-CREATE INDEX IF NOT EXISTS idx_wiki_caches_project ON wiki_caches (project_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_structure_project ON wiki_structure (project_id);
 
 -- ---------------------------------------------------------------------------
 -- 15. wiki_pages —— Wiki 页面内容（RAG 侧规范表）
 --    用途：wiki_flow 生成页面时逐页写入（WikiPageRepository.upsert），
 --          content_md 为 Markdown 内容，供 RAG 上下文/检索引用
---    与 wiki_caches 的关联：(project_id, language, is_comprehensive) 语义对应
---          wiki_caches 的 (project_id, language, comprehensive)；wiki_cache_id
---          外键可精确溯源「页面属于哪次缓存生成」
---    ★配套代码：WikiPageRepository.upsert 的 ON CONFLICT 目标需改为 4 列
---          （project_id, page_slug, language, is_comprehensive）
+--    与 wiki_structure 的关联：wiki_structure_id 外键溯源「页面属于哪次生成」；
+--          language / is_comprehensive 收敛到结构级，页面通过外键关联获取
+--    字段去重：provider / model / language 已从本表移除（保留在 wiki_structure），
+--          避免两表冗余不一致。
+--    补充字段：filePaths / importance / relatedPages 对齐前端 WikiPage 契约；
+--          parentId / isSection / children 为目录树定位字段
+--    ★配套代码：WikiPageRepository.upsert 的 ON CONFLICT 目标为
+--          (project_id, page_slug)（is_comprehensive 已上移到结构级）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS wiki_pages (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wiki_cache_id    UUID REFERENCES wiki_caches(id) ON DELETE CASCADE, -- 归属缓存（溯源）
-    project_id       UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    page_slug        TEXT NOT NULL,                         -- 页面唯一标识（= 前端 WikiPage.id）
-    title            TEXT NOT NULL,                         -- 页面标题
-    content_md       TEXT,                                  -- 页面 Markdown 内容
-    language         VARCHAR(16) NOT NULL DEFAULT 'zh',
-    is_comprehensive BOOLEAN NOT NULL DEFAULT TRUE,         -- 属于 comprehensive 还是 concise 一套
-    provider         VARCHAR(50),
-    model            VARCHAR(100),
-    source_chunks    JSONB,                                 -- 溯源：生成该页使用的 RAG 分块 [{chunk_id,...}]
-    version          INT NOT NULL DEFAULT 1,                -- 页面内容版本
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_wiki_pages UNIQUE (project_id, page_slug, language, is_comprehensive)
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    wiki_structure_id UUID REFERENCES wiki_structure(id) ON DELETE CASCADE, -- 归属结构（溯源）
+    project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    page_slug         TEXT NOT NULL,                        -- 页面唯一标识（= 前端 WikiPage.id）
+    title             TEXT NOT NULL,                        -- 页面标题
+    content_md        TEXT,                                 -- 页面 Markdown 内容
+    file_paths        JSONB NOT NULL DEFAULT '[]',          -- 相关源码文件路径列表
+    importance        VARCHAR(16) NOT NULL DEFAULT 'medium',-- 重要度：high/medium/low
+    related_pages     JSONB NOT NULL DEFAULT '[]',          -- 相关页面 ID 列表
+    parent_id         TEXT,                                 -- 树定位：父节点 id（所属 section）
+    is_section        BOOLEAN NOT NULL DEFAULT FALSE,       -- 树定位：是否本身是 section 节点
+    children          JSONB NOT NULL DEFAULT '[]',          -- 树定位：子节点 id 列表
+    source_chunks     JSONB,                                -- 溯源：生成该页使用的 RAG 分块 [{chunk_id,...}]
+    version           INT NOT NULL DEFAULT 1,               -- 页面内容版本
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_wiki_pages UNIQUE (project_id, page_slug)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wiki_pages_project ON wiki_pages (project_id);
-CREATE INDEX IF NOT EXISTS idx_wiki_pages_cache ON wiki_pages (wiki_cache_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_structure ON wiki_pages (wiki_structure_id);
 
 -- ---------------------------------------------------------------------------
 -- 16. conversations —— Wiki 内对话会话

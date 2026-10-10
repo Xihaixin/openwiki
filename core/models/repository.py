@@ -486,29 +486,35 @@ class WikiPageRepository:
 
     @staticmethod
     def upsert(project_id: str, page_slug: str, title: str,
-               content_md: str, language: str = "zh",
-               is_comprehensive: bool = True,
-               wiki_cache_id: Optional[str] = None,
-               provider: Optional[str] = None,
-               model: Optional[str] = None,
+               content_md: str,
+               wiki_structure_id: Optional[str] = None,
+               file_paths: Optional[List[str]] = None,
+               importance: str = "medium",
+               related_pages: Optional[List[str]] = None,
+               parent_id: Optional[str] = None,
+               is_section: bool = False,
+               children: Optional[List[str]] = None,
                source_chunks: Optional[List[Dict[str, Any]]] = None,
                version: int = 1) -> str:
         """
         插入或更新 Wiki 页面。
 
-        使用 (project_id, page_slug, language, is_comprehensive) 唯一约束进行 UPSERT。
-        对应 SQL: wiki_pages 表的 UNIQUE (project_id, page_slug, language, is_comprehensive)。
+        使用 (project_id, page_slug) 唯一约束进行 UPSERT。
+        对应 SQL: wiki_pages 表的 UNIQUE (project_id, page_slug)。
+        language / is_comprehensive / provider / model 已收敛到 wiki_structure 层。
 
         Args:
             project_id: 项目 ID
-            page_slug: 页面唯一标识（kebab-case）
+            page_slug: 页面唯一标识（= 前端 WikiPage.id）
             title: 页面标题
             content_md: Markdown 内容
-            language: 语言代码
-            is_comprehensive: 是否为综合模式
-            wiki_cache_id: 归属的 wiki_caches 记录 ID（溯源，可空）
-            provider: LLM 提供者
-            model: LLM 模型
+            wiki_structure_id: 归属的 wiki_structure 记录 ID（溯源，可空）
+            file_paths: 相关源码文件路径列表
+            importance: 重要度 high/medium/low
+            related_pages: 相关页面 ID 列表
+            parent_id: 目录树父节点 id
+            is_section: 是否本身是 section 节点
+            children: 子节点 id 列表
             source_chunks: 来源分块列表
             version: 版本号
 
@@ -517,39 +523,41 @@ class WikiPageRepository:
         """
         result = sync_conn.execute(
             """INSERT INTO wiki_pages
-               (project_id, page_slug, title, content_md, language,
-                is_comprehensive, wiki_cache_id, provider, model, source_chunks, version)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-               ON CONFLICT (project_id, page_slug, language, is_comprehensive) DO UPDATE SET
+               (project_id, page_slug, title, content_md, wiki_structure_id,
+                file_paths, importance, related_pages,
+                parent_id, is_section, children, source_chunks, version)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb,
+                       %s, %s, %s::jsonb, %s::jsonb, %s)
+               ON CONFLICT (project_id, page_slug) DO UPDATE SET
                title = EXCLUDED.title,
                content_md = EXCLUDED.content_md,
-               is_comprehensive = EXCLUDED.is_comprehensive,
-               wiki_cache_id = EXCLUDED.wiki_cache_id,
-               provider = EXCLUDED.provider,
-               model = EXCLUDED.model,
+               wiki_structure_id = EXCLUDED.wiki_structure_id,
+               file_paths = EXCLUDED.file_paths,
+               importance = EXCLUDED.importance,
+               related_pages = EXCLUDED.related_pages,
+               parent_id = EXCLUDED.parent_id,
+               is_section = EXCLUDED.is_section,
+               children = EXCLUDED.children,
                source_chunks = EXCLUDED.source_chunks,
                version = wiki_pages.version + 1,
                updated_at = NOW()
                RETURNING id""",
-            (project_id, page_slug, title, content_md, language,
-             is_comprehensive, wiki_cache_id, provider, model,
+            (project_id, page_slug, title, content_md, wiki_structure_id,
+             json.dumps(file_paths or []), importance, json.dumps(related_pages or []),
+             parent_id, is_section, json.dumps(children or []),
              json.dumps(source_chunks) if source_chunks else None,
              version)
         )
         return str(result[0]["id"])
 
     @staticmethod
-    def get_by_project(project_id: str, language: Optional[str] = None,
-                       is_comprehensive: Optional[bool] = None) -> List[dict]:
-        """获取项目的所有 Wiki 页面（可按语言 / 综合模式过滤）"""
+    def get_by_project(project_id: str, wiki_structure_id: Optional[str] = None) -> List[dict]:
+        """获取项目的所有 Wiki 页面（可按归属结构过滤）"""
         conditions = ["project_id = %s"]
         params: List[Any] = [project_id]
-        if language:
-            conditions.append("language = %s")
-            params.append(language)
-        if is_comprehensive is not None:
-            conditions.append("is_comprehensive = %s")
-            params.append(is_comprehensive)
+        if wiki_structure_id:
+            conditions.append("wiki_structure_id = %s")
+            params.append(wiki_structure_id)
         result = sync_conn.execute(
             f"SELECT * FROM wiki_pages WHERE {' AND '.join(conditions)} ORDER BY created_at",
             tuple(params)
@@ -557,39 +565,28 @@ class WikiPageRepository:
         return [dict(r) for r in result] if result else []
 
     @staticmethod
-    def get_by_slug(project_id: str, page_slug: str, language: str = "zh",
-                    is_comprehensive: Optional[bool] = None) -> Optional[dict]:
-        """根据 slug 获取 Wiki 页面（可按综合模式过滤，避免同 slug 多模式歧义）"""
-        if is_comprehensive is not None:
-            result = sync_conn.execute(
-                "SELECT * FROM wiki_pages WHERE project_id = %s AND page_slug = %s "
-                "AND language = %s AND is_comprehensive = %s",
-                (project_id, page_slug, language, is_comprehensive)
-            )
-        else:
-            result = sync_conn.execute(
-                "SELECT * FROM wiki_pages WHERE project_id = %s AND page_slug = %s AND language = %s "
-                "ORDER BY updated_at DESC LIMIT 1",
-                (project_id, page_slug, language)
-            )
+    def get_by_slug(project_id: str, page_slug: str) -> Optional[dict]:
+        """根据 slug 获取 Wiki 页面"""
+        result = sync_conn.execute(
+            "SELECT * FROM wiki_pages WHERE project_id = %s AND page_slug = %s "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (project_id, page_slug)
+        )
         return dict(result[0]) if result else None
 
     @staticmethod
-    def link_cache_id(
+    def link_structure_id(
         project_id: str,
-        wiki_cache_id: str,
-        language: str = "zh",
-        is_comprehensive: bool = False,
+        wiki_structure_id: str,
     ) -> int:
-        """ 用于 api/wiki_cache 端点的 save 方法中对 wiki_cache_id 的更新 """
+        """ 用于 api/wiki_cache 端点的 save 方法中对 wiki_structure_id 的更新 """
         result = sync_conn.execute(
-            "UPDATE wiki_pages SET wiki_cache_id = %s"
-            "WHERE project_id = %s AND language = %s AND is_comprehensive = %s"
-            "AND wiki_cache_id IS DISTINCT FROM %s",
-            (wiki_cache_id, project_id, language, is_comprehensive, wiki_cache_id)
+            "UPDATE wiki_pages SET wiki_structure_id = %s"
+            " WHERE project_id = %s AND wiki_structure_id IS DISTINCT FROM %s",
+            (wiki_structure_id, project_id, wiki_structure_id)
         )
-        return len(result) if result else 0 
-    
+        return len(result) if result else 0
+
     @staticmethod
     def delete_by_project(project_id: str):
         """删除项目的所有 Wiki 页面"""
@@ -600,19 +597,19 @@ class WikiPageRepository:
 
 
 # ============================================================
-# Wiki 缓存 Repository
+# Wiki 结构 Repository
 # ============================================================
 
 
-class WikiCacheRepository:
-    """表：wiki_caches | Wiki 缓存数据访问（存储 Wiki 结构 + 元数据）"""
+class WikiStructureRepository:
+    """表：wiki_structure | Wiki 结构数据访问（存储 Wiki 结构 + 元数据）"""
 
     @staticmethod
     def upsert(
         project_id: str,
         language: str,
         structure_json: dict,
-        comprehensive: bool = False,
+        is_comprehensive: bool = True,
         repo_owner: Optional[str] = None,
         repo_name: Optional[str] = None,
         repo_type: Optional[str] = None,
@@ -620,17 +617,17 @@ class WikiCacheRepository:
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
-        """插入或更新 Wiki 缓存。
+        """插入或更新 Wiki 结构。
 
-        使用 (project_id, language, comprehensive) 唯一约束进行 UPSERT；
+        使用 (project_id, language, is_comprehensive) 唯一约束进行 UPSERT；
         命中已软删除的历史记录时自动恢复（is_deleted 重置为 FALSE）。
-        对应 SQL: wiki_caches 表的 UNIQUE (project_id, language, comprehensive)。
+        对应 SQL: wiki_structure 表的 UNIQUE (project_id, language, is_comprehensive)。
 
         Args:
             project_id: 项目 ID
             language: 语言代码
             structure_json: Wiki 结构 JSON（包含 sections、pages 列表等）
-            comprehensive: 是否为综合模式（concise/comprehensive 两套缓存独立）
+            is_comprehensive: 是否为综合模式（concise/comprehensive 两套独立）
             repo_owner: 仓库所有者
             repo_name: 仓库名称
             repo_type: 仓库类型（github/gitlab/gitee）
@@ -639,15 +636,15 @@ class WikiCacheRepository:
             model: LLM 模型
 
         Returns:
-            str: 缓存记录 ID
+            str: 结构记录 ID
         """
         result = sync_conn.execute(
-            """INSERT INTO wiki_caches
-               (project_id, language, comprehensive, structure_json,
+            """INSERT INTO wiki_structure
+               (project_id, language, is_comprehensive, structure_json,
                 repo_owner, repo_name, repo_type, repo_url,
                 provider, model)
                VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (project_id, language, comprehensive) DO UPDATE SET
+               ON CONFLICT (project_id, language, is_comprehensive) DO UPDATE SET
                structure_json = EXCLUDED.structure_json,
                repo_owner = EXCLUDED.repo_owner,
                repo_name = EXCLUDED.repo_name,
@@ -659,7 +656,7 @@ class WikiCacheRepository:
                deleted_at = NULL,
                updated_at = NOW()
                RETURNING id""",
-            (project_id, language, comprehensive, json.dumps(structure_json),
+            (project_id, language, is_comprehensive, json.dumps(structure_json),
              repo_owner, repo_name, repo_type, repo_url,
              provider, model)
         )
@@ -667,27 +664,27 @@ class WikiCacheRepository:
 
     @staticmethod
     def get_by_project(project_id: str, language: str,
-                       comprehensive: bool = False) -> Optional[dict]:
-        """获取项目的 Wiki 缓存（按 3 列唯一定位，过滤已软删除记录）。
+                       is_comprehensive: bool = True) -> Optional[dict]:
+        """获取项目的 Wiki 结构（按 3 列唯一定位，过滤已软删除记录）。
 
         Args:
             project_id: 项目 ID
             language: 语言代码
-            comprehensive: 是否为综合模式
+            is_comprehensive: 是否为综合模式
 
         Returns:
-            Optional[dict]: 缓存记录，未找到返回 None
+            Optional[dict]: 结构记录，未找到返回 None
         """
         result = sync_conn.execute(
-            "SELECT * FROM wiki_caches WHERE project_id = %s AND language = %s "
-            "AND comprehensive = %s AND is_deleted = FALSE",
-            (project_id, language, comprehensive)
+            "SELECT * FROM wiki_structure WHERE project_id = %s AND language = %s "
+            "AND is_comprehensive = %s AND is_deleted = FALSE",
+            (project_id, language, is_comprehensive)
         )
         return dict(result[0]) if result else None
 
     @staticmethod
     def delete(project_id: str, language: str) -> bool:
-        """软删除项目的 Wiki 缓存（该语言下所有 comprehensive 变体）。
+        """软删除项目的 Wiki 结构（该语言下所有 is_comprehensive 变体）。
 
         Args:
             project_id: 项目 ID
@@ -697,7 +694,7 @@ class WikiCacheRepository:
             bool: 是否确实软删除了记录
         """
         result = sync_conn.execute(
-            "UPDATE wiki_caches SET is_deleted = TRUE, deleted_at = NOW() "
+            "UPDATE wiki_structure SET is_deleted = TRUE, deleted_at = NOW() "
             "WHERE project_id = %s AND language = %s AND is_deleted = FALSE RETURNING id",
             (project_id, language)
         )
@@ -705,17 +702,17 @@ class WikiCacheRepository:
 
     @staticmethod
     def delete_by_project(project_id: str):
-        """软删除项目的所有语言 Wiki 缓存。"""
+        """软删除项目的所有语言 Wiki 结构。"""
         sync_conn.execute(
-            "UPDATE wiki_caches SET is_deleted = TRUE, deleted_at = NOW() "
+            "UPDATE wiki_structure SET is_deleted = TRUE, deleted_at = NOW() "
             "WHERE project_id = %s AND is_deleted = FALSE",
             (project_id,)
         )
 
     @staticmethod
     def list_all() -> List[dict]:
-        """列出所有未软删除的 Wiki 缓存记录（按更新时间倒序）。"""
+        """列出所有未软删除的 Wiki 结构记录（按更新时间倒序）。"""
         result = sync_conn.execute(
-            "SELECT * FROM wiki_caches WHERE is_deleted = FALSE ORDER BY updated_at DESC"
+            "SELECT * FROM wiki_structure WHERE is_deleted = FALSE ORDER BY updated_at DESC"
         )
         return [dict(r) for r in result] if result else []

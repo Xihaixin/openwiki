@@ -60,7 +60,7 @@ class WikiCacheService:
     # ── 已处理项目列表 ─────────────────────────────────────────
 
     def list_storage_projects(self) -> List[Dict[str, Any]]:
-        """从存储层列出已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_caches 表）。"""
+        """从存储层列出已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_structure 表）。"""
         return self._storage.list_projects()
 
     def list_db_projects(self) -> List[Dict[str, Any]]:

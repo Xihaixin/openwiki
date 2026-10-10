@@ -79,6 +79,7 @@ class Project(Base):
     # 关系
     documents: Mapped[List["RawDocument"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     wiki_pages: Mapped[List["WikiPage"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    wiki_structures: Mapped[List["WikiStructure"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -395,21 +396,28 @@ class WikiPage(Base):
     """Wiki 页面"""
     __tablename__ = "wiki_pages"
     __table_args__ = (
-        UniqueConstraint("project_id", "page_slug", "language", name="unique_wiki_page"),
+        UniqueConstraint("project_id", "page_slug", name="unique_wiki_page"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    wiki_structure_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("wiki_structure.id", ondelete="CASCADE")
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
 
     page_slug: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content_md: Mapped[Optional[str]] = mapped_column(Text)
 
-    language: Mapped[str] = mapped_column(String(10), default="zh")
-    is_comprehensive: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 对齐前端 WikiPage 契约的页面属性
+    file_paths: Mapped[list] = mapped_column(JSONB, default=list)
+    importance: Mapped[str] = mapped_column(String(16), default="medium")
+    related_pages: Mapped[list] = mapped_column(JSONB, default=list)
 
-    provider: Mapped[Optional[str]] = mapped_column(String(50))
-    model: Mapped[Optional[str]] = mapped_column(String(100))
+    # 目录树定位字段
+    parent_id: Mapped[Optional[str]] = mapped_column(Text)
+    is_section: Mapped[bool] = mapped_column(Boolean, default=False)
+    children: Mapped[list] = mapped_column(JSONB, default=list)
 
     source_chunks: Mapped[Optional[dict]] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -421,25 +429,26 @@ class WikiPage(Base):
     project: Mapped["Project"] = relationship(back_populates="wiki_pages")
 
     def __repr__(self):
-        return f"<WikiPage(slug='{self.page_slug}', lang='{self.language}')>"
+        return f"<WikiPage(slug='{self.page_slug}')>"
 
 
 # ============================================================
-# 14. Wiki 缓存表
+# 14. Wiki 结构表
 # ============================================================
 
 
-class WikiCache(Base):
-    """Wiki 缓存（存储 Wiki 结构 + 元数据）"""
-    __tablename__ = "wiki_caches"
+class WikiStructure(Base):
+    """Wiki 结构（存储 Wiki 结构 + 元数据，wiki_pages 的父级）"""
+    __tablename__ = "wiki_structure"
     __table_args__ = (
-        UniqueConstraint("project_id", "language", name="unique_wiki_cache_per_project_lang"),
+        UniqueConstraint("project_id", "language", "is_comprehensive", name="unique_wiki_structure_per_project_lang"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
 
     language: Mapped[str] = mapped_column(String(10), default="zh")
+    is_comprehensive: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Wiki 结构（JSONB，包含 sections、page hierarchy 等）
     structure_json: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -450,18 +459,22 @@ class WikiCache(Base):
     repo_type: Mapped[Optional[str]] = mapped_column(String(50), default="github")
     repo_url: Mapped[Optional[str]] = mapped_column(Text)
 
-    # LLM 配置
+    # LLM 配置（收敛到结构级，wiki_pages 不再冗余）
     provider: Mapped[Optional[str]] = mapped_column(String(50))
     model: Mapped[Optional[str]] = mapped_column(String(100))
+
+    # 软删除
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # 关系
-    project: Mapped["Project"] = relationship(back_populates="wiki_caches")
+    project: Mapped["Project"] = relationship(back_populates="wiki_structures")
 
     def __repr__(self):
-        return f"<WikiCache(project={self.project_id}, lang='{self.language}')>"
+        return f"<WikiStructure(project={self.project_id}, lang='{self.language}')>"
 
 
 # ============================================================

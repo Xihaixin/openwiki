@@ -130,14 +130,14 @@ async def get_processed_projects():
     列出所有已处理的项目
 
     数据源（按 (owner, repo, language) 复合键去重后合并）：
-      1. 存储层已处理项目（文件系统扫描缓存目录 / DB 扫描 wiki_caches 表）
+      1. 存储层已处理项目（文件系统扫描缓存目录 / DB 扫描 wiki_structure 表）
       2. PostgreSQL projects 表补充：仅存在于 projects 表的项目
          （projects 表无 language 字段，语言取配置默认值；comprehensive 默认 False）
     """
     project_entries: List[ProcessedProjectEntry] = []
 
     try:
-        # 1. 从存储层扫描已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_caches 表）
+        # 1. 从存储层扫描已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_structure 表）
         cached_projects = await asyncio.to_thread(wiki_cache_service.list_storage_projects)
         for entry in cached_projects:
             try:

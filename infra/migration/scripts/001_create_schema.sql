@@ -339,29 +339,35 @@ COMMENT ON TABLE pipeline_logs IS '管道日志表，记录 RAG 管道的每个�
 -- 13. Wiki 页面表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS wiki_pages (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    wiki_structure_id UUID REFERENCES wiki_structure(id) ON DELETE CASCADE,
+    project_id        UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 
-    page_slug       TEXT NOT NULL,
-    title           TEXT NOT NULL,
-    content_md      TEXT,
+    page_slug         TEXT NOT NULL,
+    title             TEXT NOT NULL,
+    content_md        TEXT,
 
-    language        TEXT DEFAULT 'zh',
-    is_comprehensive BOOLEAN DEFAULT TRUE,
+    -- 对齐前端 WikiPage 契约的页面属性
+    file_paths        JSONB NOT NULL DEFAULT '[]',
+    importance        VARCHAR(16) NOT NULL DEFAULT 'medium',
+    related_pages     JSONB NOT NULL DEFAULT '[]',
 
-    provider        TEXT,
-    model           TEXT,
+    -- 目录树定位字段
+    parent_id         TEXT,
+    is_section        BOOLEAN NOT NULL DEFAULT FALSE,
+    children          JSONB NOT NULL DEFAULT '[]',
 
-    source_chunks   JSONB,
-    version         INT DEFAULT 1,
+    source_chunks     JSONB,
+    version           INT DEFAULT 1,
 
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW(),
 
-    UNIQUE (project_id, page_slug, language)
+    UNIQUE (project_id, page_slug)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wiki_pages_project ON wiki_pages(project_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_structure ON wiki_pages(wiki_structure_id);
 
 COMMENT ON TABLE wiki_pages IS 'Wiki 页面表，替代 JSONB blob，支持局部更新和版本管理';
 COMMENT ON COLUMN wiki_pages.source_chunks IS '引用的文档块 ID 列表，用于溯源';
@@ -395,13 +401,14 @@ CREATE INDEX IF NOT EXISTS idx_conv_turns_conversation ON conversation_turns(con
 COMMENT ON TABLE conversations IS '对话历史表，持久化用户与 LLM 的对话记录';
 
 -- ============================================================
--- 15. Wiki 缓存表（存储 Wiki 结构 + 元数据）
+-- 15. Wiki 结构表（存储 Wiki 结构 + 元数据）
 -- ============================================================
-CREATE TABLE IF NOT EXISTS wiki_caches (
+CREATE TABLE IF NOT EXISTS wiki_structure (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 
     language        TEXT NOT NULL DEFAULT 'zh',
+    is_comprehensive BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- Wiki 结构（JSONB，包含 sections、page hierarchy 等）
     structure_json  JSONB NOT NULL DEFAULT '{}',
@@ -416,18 +423,22 @@ CREATE TABLE IF NOT EXISTS wiki_caches (
     provider        TEXT,
     model           TEXT,
 
+    -- 软删除
+    is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at      TIMESTAMPTZ,
+
     -- 时间戳
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
 
-    UNIQUE (project_id, language)
+    UNIQUE (project_id, language, is_comprehensive)
 );
 
-CREATE INDEX IF NOT EXISTS idx_wiki_caches_project ON wiki_caches(project_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_structure_project ON wiki_structure(project_id);
 
-COMMENT ON TABLE wiki_caches IS 'Wiki 缓存表，存储 Wiki 结构（sections、page hierarchy）和元数据';
-COMMENT ON COLUMN wiki_caches.structure_json IS 'Wiki 结构 JSON，包含 sections、pages 列表、rootSections 等';
-COMMENT ON COLUMN wiki_caches.repo_url IS '仓库 URL，用于前端展示和链接';
+COMMENT ON TABLE wiki_structure IS 'Wiki 结构表，存储 Wiki 结构（sections、page hierarchy）和元数据';
+COMMENT ON COLUMN wiki_structure.structure_json IS 'Wiki 结构 JSON，包含 sections、pages 列表、rootSections 等';
+COMMENT ON COLUMN wiki_structure.repo_url IS '仓库 URL，用于前端展示和链接';
 
 -- ============================================================
 -- 插入默认嵌入模型数据

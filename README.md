@@ -245,15 +245,15 @@ python -m core.cli --mode research --repo-url https://github.com/owner/repo --qu
 | 文档与向量 | `raw_documents`、`document_versions`、`document_chunks`、`chunk_embeddings_dim256` | 原始文档正文、`content_sha256` 去重、版本快照、分块、256 维向量（HNSW + GIN 双索引） |
 | 代码结构 | `code_symbols` | 符号表（qualified_name / 签名 / 行号 / 可见性） |
 | 可观测性 | `ingestion_jobs`、`pipeline_logs`、`retrieval_logs`、`retrieval_results`、`qa_logs` | 摄取状态机、管道明细、检索请求与命中明细、问答日志 |
-| 产物与会话 | `wiki_caches`、`wiki_pages`、`conversations`、`conversation_turns` | 生成的 Wiki 结构与页面正文；Wiki 内对话 |
+| 产物与会话 | `wiki_structure`、`wiki_pages`、`conversations`、`conversation_turns` | 生成的 Wiki 结构与页面正文；Wiki 内对话 |
 
 关键约束：
 
-- `wiki_caches` — `UNIQUE (project_id, language, comprehensive)`，支持 **concise / comprehensive** 两套产物独立共存；`structure_json` 存完整 payload（含 `generated_pages`），读取时零拼装
-- `wiki_pages` — `UNIQUE (project_id, page_slug, language, is_comprehensive)`，外键 `wiki_cache_id` 溯源
-- **软删除**：`wiki_caches` 通过 `is_deleted` / `deleted_at` 标记，删除后重跑同一项目会自动恢复（唯一约束命中软删除行）
+- `wiki_structure` — `UNIQUE (project_id, language, is_comprehensive)`，支持 **concise / comprehensive** 两套产物独立共存；`structure_json` 存完整 payload（含 `generated_pages`），读取时零拼装
+- `wiki_pages` — `UNIQUE (project_id, page_slug)`，外键 `wiki_structure_id` 溯源；`language` / `is_comprehensive` / `provider` / `model` 收敛到结构级
+- **软删除**：`wiki_structure` 通过 `is_deleted` / `deleted_at` 标记，删除后重跑同一项目会自动恢复（唯一约束命中软删除行）
 
-数据访问统一走 `infra/db/repository.py` 的 Repository 类：`ProjectRepository`、`DocumentRepository`、`ChunkRepository`、`EmbeddingRepository`、`IngestionJobRepository`、`RetrievalRepository`、`PipelineLogRepository`、`WikiPageRepository`、`WikiCacheRepository`。
+数据访问统一走 `infra/db/repository.py` 的 Repository 类：`ProjectRepository`、`DocumentRepository`、`ChunkRepository`、`EmbeddingRepository`、`IngestionJobRepository`、`RetrievalRepository`、`PipelineLogRepository`、`WikiPageRepository`、`WikiStructureRepository`。
 
 ---
 
@@ -272,7 +272,7 @@ python -m core.cli --mode research --repo-url https://github.com/owner/repo --qu
 | `GET` | `/api/wiki_cache` | 读取已生成的 Wiki（结构 + 页面） | `wiki_cache.py` |
 | `POST` | `/api/wiki_cache` | 保存生成的 Wiki | `wiki_cache.py` |
 | `DELETE` | `/api/wiki_cache` | 删除指定 Wiki（软删除） | `wiki_cache.py` |
-| `GET` | `/api/processed_projects` | 已处理项目列表（仅由 `wiki_cache_service` 从存储层扫描：DB 实现查 `wiki_caches` 表，文件系统实现扫缓存目录） | `wiki_cache.py` |
+| `GET` | `/api/processed_projects` | 已处理项目列表（仅由 `wiki_cache_service` 从存储层扫描：DB 实现查 `wiki_structure` 表，文件系统实现扫缓存目录） | `wiki_cache.py` |
 | `POST` | `/wiki/generate` | 生成完整 Wiki（**SSE 流式**） | `wiki.py` |
 | `POST` | `/wiki/generate/page` | 生成单个页面（**SSE 流式**） | `wiki.py` |
 | `POST` | `/chat/completions/stream` | 问答 / 深度研究（**SSE 流式**） | `chat.py` |
@@ -424,4 +424,4 @@ src/  (Next.js)
 - [ ] 引入 pytest 补充接口 / 缓存 / 配置层的回归测试（当前未引入任何测试框架）
 - [ ] 前后端契约自动生成（当前 `src/types/` 为手工维护，可考虑接入 OpenAPI 生成）
 - [ ] 统一前端代理路径（rewrites 与 Route Handler 二选一）
-- [ ] `infra/db/dump_pkl_data_03.py`、`infra/migration/scripts/populate_wiki_caches.py` 等一次性脚本的去留梳理
+- [ ] `infra/db/dump_pkl_data_03.py`、`infra/migration/scripts/populate_wiki_structure.py` 等一次性脚本的去留梳理

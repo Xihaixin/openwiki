@@ -7,8 +7,8 @@ Wiki 缓存 — Redis + PostgreSQL 双层缓存
 - 删：软删除 PostgreSQL 数据 → 同时删除 Redis 键
 
 Redis key 格式:
-  wiki:cache:{project_id}:{language}:c{0|1}       — Wiki 结构 + 元数据（按 comprehensive 区分）
-  wiki:page:{project_id}:{page_slug}:{language}:c{0|1} — 单个 Wiki 页面
+  wiki:cache:{project_id}:{language}:c{0|1}       — Wiki 结构 + 元数据（按 is_comprehensive 区分）
+  wiki:page:{project_id}:{page_slug}              — 单个 Wiki 页面（language/is_comprehensive 上移到结构级）
   wiki:projects:list                              — 已处理项目列表（缓存）
 
 数据契约（与 infra/cache/base.py WikiCacheStorage 一致）：
@@ -25,7 +25,7 @@ from infra.cache.redis_client import redis_client
 from core.config.settings import settings
 from core.models.repository import (
     ProjectRepository,
-    WikiCacheRepository,
+    WikiStructureRepository,
     WikiPageRepository,
 )
 
@@ -56,9 +56,8 @@ class WikiCacheManager:
         return f"{CACHE_PREFIX}:{project_id}:{language}:{_mode_suffix(comprehensive)}"
 
     @staticmethod
-    def _page_key(project_id: str, page_slug: str, language: str,
-                  is_comprehensive: bool = True) -> str:
-        return f"{PAGE_PREFIX}:{project_id}:{page_slug}:{language}:{_mode_suffix(is_comprehensive)}"
+    def _page_key(project_id: str, page_slug: str) -> str:
+        return f"{PAGE_PREFIX}:{project_id}:{page_slug}"
 
     # ── 读操作：Cache-Aside ────────────────────────────────────────
 
@@ -77,7 +76,7 @@ class WikiCacheManager:
                 pass
 
         # 2. Redis 未命中，查 PostgreSQL
-        record = WikiCacheRepository.get_by_project(project_id, language, comprehensive)
+        record = WikiStructureRepository.get_by_project(project_id, language, comprehensive)
         if not record:
             return None
 
@@ -90,11 +89,10 @@ class WikiCacheManager:
         logger.debug(f"Wiki cache MISS (Redis), loaded from DB: {project_id}/{language}/{comprehensive}")
         return record
 
-    def get_page(self, project_id: str, page_slug: str, language: str,
-                 is_comprehensive: bool = True) -> Optional[dict]:
-        """获取单个 Wiki 页面（Redis → PostgreSQL），按 comprehensive 维度区分"""
+    def get_page(self, project_id: str, page_slug: str) -> Optional[dict]:
+        """获取单个 Wiki 页面（Redis → PostgreSQL）"""
         # 1. 先查 Redis
-        redis_key = self._page_key(project_id, page_slug, language, is_comprehensive)
+        redis_key = self._page_key(project_id, page_slug)
         cached = redis_client.get(redis_key)
         if cached is not None:
             try:
@@ -105,7 +103,7 @@ class WikiCacheManager:
                 pass
 
         # 2. Redis 未命中，查 PostgreSQL
-        record = WikiPageRepository.get_by_slug(project_id, page_slug, language, is_comprehensive)
+        record = WikiPageRepository.get_by_slug(project_id, page_slug)
         if not record:
             return None
 
@@ -133,13 +131,13 @@ class WikiCacheManager:
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
-        """保存 Wiki 缓存（PostgreSQL → Redis），按 comprehensive 维度区分"""
+        """保存 Wiki 结构（PostgreSQL → Redis），按 comprehensive 维度区分"""
         # 1. 先写 PostgreSQL
-        record_id = WikiCacheRepository.upsert(
+        record_id = WikiStructureRepository.upsert(
             project_id=project_id,
             language=language,
             structure_json=structure_json,
-            comprehensive=comprehensive,
+            is_comprehensive=comprehensive,
             repo_owner=repo_owner,
             repo_name=repo_name,
             repo_type=repo_type,
@@ -155,7 +153,7 @@ class WikiCacheManager:
                 "id": record_id,
                 "project_id": project_id,
                 "language": language,
-                "comprehensive": comprehensive,
+                "is_comprehensive": comprehensive,
                 "structure_json": structure_json,
                 "repo_owner": repo_owner,
                 "repo_name": repo_name,
@@ -182,11 +180,13 @@ class WikiCacheManager:
         page_slug: str,
         title: str,
         content_md: str,
-        language: str = "zh",
-        is_comprehensive: bool = True,
-        wiki_cache_id: Optional[str] = None,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
+        wiki_structure_id: Optional[str] = None,
+        file_paths: Optional[List[str]] = None,
+        importance: str = "medium",
+        related_pages: Optional[List[str]] = None,
+        parent_id: Optional[str] = None,
+        is_section: bool = False,
+        children: Optional[List[str]] = None,
         source_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """保存单个 Wiki 页面（PostgreSQL → Redis）"""
@@ -196,27 +196,32 @@ class WikiCacheManager:
             page_slug=page_slug,
             title=title,
             content_md=content_md,
-            language=language,
-            is_comprehensive=is_comprehensive,
-            wiki_cache_id=wiki_cache_id,
-            provider=provider,
-            model=model,
+            wiki_structure_id=wiki_structure_id,
+            file_paths=file_paths,
+            importance=importance,
+            related_pages=related_pages,
+            parent_id=parent_id,
+            is_section=is_section,
+            children=children,
             source_chunks=source_chunks,
         )
 
         # 2. 再写 Redis
         try:
-            redis_key = self._page_key(project_id, page_slug, language, is_comprehensive)
+            redis_key = self._page_key(project_id, page_slug)
             page_data = {
                 "id": page_id,
                 "project_id": project_id,
                 "page_slug": page_slug,
                 "title": title,
                 "content_md": content_md,
-                "language": language,
-                "is_comprehensive": is_comprehensive,
-                "provider": provider,
-                "model": model,
+                "wiki_structure_id": wiki_structure_id,
+                "file_paths": file_paths or [],
+                "importance": importance,
+                "related_pages": related_pages or [],
+                "parent_id": parent_id,
+                "is_section": is_section,
+                "children": children or [],
             }
             redis_client.set(redis_key, json.dumps(page_data, ensure_ascii=False), ttl=DEFAULT_TTL)
         except Exception as e:
@@ -237,7 +242,7 @@ class WikiCacheManager:
             logger.debug(f"Failed to delete Redis cache: {e}")
 
         # 2. PostgreSQL 软删除
-        result = WikiCacheRepository.delete(project_id, language)
+        result = WikiStructureRepository.delete(project_id, language)
 
         # 3. 清除项目列表缓存
         try:
@@ -259,7 +264,7 @@ class WikiCacheManager:
             logger.debug(f"Failed to delete Redis project keys: {e}")
 
         # 2. PostgreSQL 软删除
-        WikiCacheRepository.delete_by_project(project_id)
+        WikiStructureRepository.delete_by_project(project_id)
         WikiPageRepository.delete_by_project(project_id)
 
         # 3. 清除项目列表缓存
@@ -296,12 +301,13 @@ class DbRedisWikiCacheStorage:
     """PostgreSQL 持久化 + Redis 运行期缓存实现（WikiCacheStorage 接口）。
 
     说明：
-    - `wiki_caches` / `wiki_pages` 表保存的是**最终生成的 Wiki 页面与结构**
+    - `wiki_structure` / `wiki_pages` 表保存的是**最终生成的 Wiki 页面与结构**
       （持久化结果），Redis 仅作为运行期热缓存。
     - 通过 (owner, repo, repo_type) 解析 project_id（不存在时按需创建项目记录，
       与 core/flows/wiki_flow.py 的 get_or_create 行为一致）。
       （wiki_structure / generated_pages / repo / provider / model），
-      页面从 wiki_pages 表按 (project_id, language, is_comprehensive) 组装。
+      页面从 wiki_pages 表按 (project_id, page_slug) 组装，
+      language/is_comprehensive 收敛到结构级。
     """
 
     def __init__(self, manager: Optional[WikiCacheManager] = None):
@@ -327,7 +333,8 @@ class DbRedisWikiCacheStorage:
 
         if pages is not None:
             for p in pages:
-                # 统一字段映射：DB 行为 page_slug/content_md，前端结构为 id/content
+                # 统一字段映射：DB 行为 page_slug/content_md/file_paths/...，
+                # 前端结构为 id/content/filePaths/...（camelCase）
                 slug = p.get("page_slug") or p.get("id")
                 if not slug:
                     continue
@@ -335,21 +342,21 @@ class DbRedisWikiCacheStorage:
                     "id": slug,
                     "title": p.get("title", slug),
                     "content": p.get(content_field) or p.get("content") or p.get("content_md") or "",
-                    "filePaths": p.get("filePaths") or [],
+                    "filePaths": p.get("filePaths") or p.get("file_paths") or [],
                     "importance": p.get("importance") or "medium",
-                    "relatedPages": p.get("relatedPages") or [],
-                    "parentId": p.get("parentId"),
-                    "isSection": p.get("isSection", False),
+                    "relatedPages": p.get("relatedPages") or p.get("related_pages") or [],
+                    "parentId": p.get("parentId") or p.get("parent_id"),
+                    "isSection": p.get("isSection") or p.get("is_section", False),
                     "children": p.get("children") or [],
                 }
         return generated_pages
 
     @staticmethod
     def _build_payload(project_id: str,record: dict) -> Dict[str, Any]:
-        """将 wiki_caches 记录 + wiki_pages 列表组装为完整 payload（WikiCacheData 等价 dict）"""
+        """将 wiki_structure 记录 + wiki_pages 列表组装为完整 payload（WikiCacheData 等价 dict）"""
         redis_and_content_flag: bool = False
         language = record.get("language",'zh')
-        comprehensive = record.get("comprehensive", False)
+        comprehensive = record.get("is_comprehensive", False)
         structure_json = record.get("structure_json") or {}
         generated_pages: Dict[str, Any] = {}
 
@@ -368,7 +375,7 @@ class DbRedisWikiCacheStorage:
             redis_and_content_flag = False
         else:
             redis_and_content_flag = True
-            pages = WikiPageRepository.get_by_project(project_id, language, comprehensive)
+            pages = WikiPageRepository.get_by_project(project_id)
 
         generated_pages = DbRedisWikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
         # structure_json.pages 需为前端期望的 Dict[str, WikiPage]，此处替换为页面字典
@@ -405,7 +412,7 @@ class DbRedisWikiCacheStorage:
                     "id": redis_key,
                     "project_id": project_id,
                     "language": language,
-                    "comprehensive": comprehensive,
+                    "is_comprehensive": comprehensive,
                     "structure_json": structure_json,
                     "repo_owner": record.get("repo_owner"),
                     "repo_name": record.get("repo_name"),
@@ -452,7 +459,7 @@ class DbRedisWikiCacheStorage:
         repo_info = payload.get("repo") or {}
         owner = repo_info.get("owner", "")
         repo = repo_info.get("repo", "")
-        # wiki_caches.repo_type 为 NOT NULL，兜底为 github
+        # wiki_structure.repo_type 为 NOT NULL，兜底为 github
         repo_type = repo_info.get("type") or "github"
         wiki_pages = payload.get("generated_pages") or None
 
@@ -469,12 +476,12 @@ class DbRedisWikiCacheStorage:
             return False
         structure_json = payload.get("wiki_structure") or {}
         try:
-            ## 这里保存的是 wiki_structure
+            ## 1. 保存 wiki_structure（结构 + 元数据）
             record_id = self._manager.save_wiki_structure(
                 project_id=project_id,
                 language=payload.get("language", "zh"),
                 structure_json=structure_json,
-                comprehensive=payload.get("comprehensive",False),
+                comprehensive=payload.get("comprehensive", False),
                 repo_owner=owner or None,
                 repo_name=repo or None,
                 repo_type=repo_type,
@@ -482,11 +489,25 @@ class DbRedisWikiCacheStorage:
                 provider=payload.get("provider"),
                 model=payload.get("model"),
             )
-            logger.debug(f"The WikiCache's RecordId is {record_id}.")
+            logger.debug(f"The WikiStructure's RecordId is {record_id}.")
 
-            ## 还需要保存 wiki_pages, 需要对其进行遍历
-
-
+            ## 2. 遍历 generated_pages，逐页写入 wiki_pages（内容 + 树定位字段）
+            for page_slug, page_data in wiki_pages.items():
+                if not isinstance(page_data, dict):
+                    continue
+                self._manager.save_wiki_page(
+                    project_id=project_id,
+                    page_slug=page_data.get("id") or page_slug,
+                    title=page_data.get("title", page_slug),
+                    content_md=page_data.get("content") or "",
+                    wiki_structure_id=record_id,
+                    file_paths=page_data.get("filePaths") or [],
+                    importance=page_data.get("importance") or "medium",
+                    related_pages=page_data.get("relatedPages") or [],
+                    parent_id=page_data.get("parentId"),
+                    is_section=page_data.get("isSection", False),
+                    children=page_data.get("children") or [],
+                )
 
             return True
         except Exception as e:
@@ -501,8 +522,8 @@ class DbRedisWikiCacheStorage:
         return self._manager.delete_cache(project_id, language)
 
     def list_projects(self) -> List[Dict[str, Any]]:
-        """列出所有已处理项目（wiki_caches 表），字段对齐 ProcessedProjectEntry 契约"""
-        rows = WikiCacheRepository.list_all()
+        """列出所有已处理项目（wiki_structure 表），字段对齐 ProcessedProjectEntry 契约"""
+        rows = WikiStructureRepository.list_all()
         projects: List[Dict[str, Any]] = []
         for r in rows:
             owner = r.get("repo_owner") or ""
@@ -516,7 +537,7 @@ class DbRedisWikiCacheStorage:
                     "repo_type": r.get("repo_type") or "github",
                     "submittedAt": _to_ms(r.get("created_at")),
                     "language": r.get("language"),
-                    "comprehensive": r.get("comprehensive", False),
+                    "comprehensive": r.get("is_comprehensive", False),
                 }
             )
         return projects

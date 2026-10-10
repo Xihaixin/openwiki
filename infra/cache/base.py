@@ -2,7 +2,7 @@
 Wiki 数据存储抽象接口
 
 设计背景：
-- `wiki_caches` / `wiki_pages` 表存储的是**最终生成的 Wiki 页面与结构**，
+- `wiki_structure` / `wiki_pages` 表存储的是**最终生成的 Wiki 页面与结构**，
   属于持久化结果，而非可丢弃的中间产物。
 - Redis 仅作为应用运行过程中"生成 Wiki / 加载历史 Wiki"的**运行期缓存**。
 
