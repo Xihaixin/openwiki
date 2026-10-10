@@ -327,16 +327,17 @@ class DbRedisWikiCacheStorage:
 
         if pages is not None:
             for p in pages:
+                # 统一字段映射：DB 行为 page_slug/content_md，前端结构为 id/content
                 slug = p.get("page_slug") or p.get("id")
                 if not slug:
                     continue
                 generated_pages[slug] = {
                     "id": slug,
                     "title": p.get("title", slug),
-                    "content": p.get(content_field, ""),
-                    "filePaths": [],
-                    "importance": "medium",
-                    "relatedPages": [],
+                    "content": p.get(content_field) or p.get("content") or p.get("content_md") or "",
+                    "filePaths": p.get("filePaths") or [],
+                    "importance": p.get("importance") or "medium",
+                    "relatedPages": p.get("relatedPages") or [],
                 }
         return generated_pages
 
@@ -349,13 +350,25 @@ class DbRedisWikiCacheStorage:
         structure_json = record.get("structure_json") or {}
         generated_pages: Dict[str, Any] = {}
 
-        if not structure_json.get("pages",[])[0].get("content"):
+        # 判空安全：structure_json 可能无 pages / pages 为空 / 首元素无正文
+        structure_pages = structure_json.get("pages") or []
+        first_page = structure_pages[0] if isinstance(structure_pages, list) and structure_pages else None
+        # 结构内页若携带正文（content 非空），则该结构本身就是完整数据，直接用；
+        # 否则说明只存了结构骨架，需回查 wiki_pages 表补全正文。
+        has_inline_content = bool(
+            isinstance(first_page, dict)
+            and (first_page.get("content") or first_page.get("content_md"))
+        )
+
+        if has_inline_content:
+            pages = structure_pages
+            redis_and_content_flag = False
+        else:
             redis_and_content_flag = True
             pages = WikiPageRepository.get_by_project(project_id, language, comprehensive)
-        else:
-            pages = structure_json.get("pages",[])
 
         generated_pages = DbRedisWikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
+        # structure_json.pages 需为前端期望的 Dict[str, WikiPage]，此处替换为页面字典
         structure_json["pages"] = generated_pages
 
         repo_info = {
