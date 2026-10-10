@@ -68,13 +68,14 @@ export default function SlidesPage() {
 
   // Initialize repo info with useMemo to prevent unnecessary re-renders
   const repoInfo = useMemo<RepoInfo>(() => ({
+    projectId: searchParams.get('projectId') || null,
     owner,
     repo,
     type: repoType,
     token: token || null,
     localPath: localPath || null,
     repoUrl: repoUrl || null
-  }), [owner, repo, repoType, token, localPath, repoUrl]);
+  }), [searchParams, owner, repo, repoType, token, localPath, repoUrl]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(false);

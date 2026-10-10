@@ -25,6 +25,9 @@ node_modules
 core/config/logs
 *.log
 
+# TypeScript build artifacts
+*.tsbuildinfo
+
 .aidocs
 .env.example
 .codebuddy
