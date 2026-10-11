@@ -33,7 +33,6 @@ from core.flows.base import (
     load_configs,
 )
 from core.models import WikiPage, WikiSection, WikiStructure
-from infra.cache.key import get_cache_key
 from core.models.repository import DocumentRepository, WikiPageRepository
 from infra.retrieval.pgvector_retriever import PgvectorRetriever
 
@@ -106,18 +105,12 @@ class WikiGenerationFlow(BaseFlow):
         # 文档索引首次从 DB 加载后缓存，多页面生成时复用，避免每页全量重载
         self._doc_map: Optional[Dict[str, str]] = None
 
-        # 缓存键（对应前端 getCacheKey）
-        self.cache_key = get_cache_key(
-            self.owner, self.repo, self.repo_type, self.language, self.comprehensive
-        )
-
         logger.info(f"初始化 WikiGenerationFlow:")
         logger.info(f"  仓库: {repo_url}")
         logger.info(f"  本地路径: {local_path}")
         logger.info(f"  提供者: {provider}/{model}")
         logger.info(f"  语言: {self.language_name} ({language})")
         logger.info(f"  模式: {'comprehensive' if comprehensive else 'concise'}")
-        logger.info(f"  缓存键: {self.cache_key}")
 
     # ── 步骤 1: 获取仓库结构 ──────────────────────────────────────────────
 
@@ -964,7 +957,6 @@ Return ONLY valid XML with this exact structure:
         ws = self.wiki_structure
         logger.info(f"标题: {ws.title}")
         logger.info(f"描述: {ws.description}")
-        logger.info(f"缓存键: {self.cache_key}")
         logger.info(f"")
         logger.info(f"页面总数: {len(ws.pages)}")
         logger.info(f"章节总数: {len(ws.sections)}")

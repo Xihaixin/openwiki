@@ -393,7 +393,7 @@ src/  (Next.js)
 `.env` 设置 `CACHE_BACKEND=filesystem` 切回本地 JSON 文件缓存（向后兼容）；`db_redis`（默认）走 PG 持久化 + Redis 加速。`core/services/wiki_cache.py` 会按配置装配对应实现，调用方零感知。
 
 **5. 仓库名含下划线时缓存对不上？**
-`infra/cache/key.py` 已去除 `_` → `-` 的字符替换，与前端 `page.tsx` 的 `getCacheKey()` 完全一致。不要重新引入任何字符改写。
+不会。缓存键由 `infra/cache/wiki_cache.py` 的 `WikiCacheManager._cache_key(project_id, language, comprehensive)` 生成，格式为 `wiki:cache:{project_id}:{language}:c0|c1`，以 `project_id` 定位、不含 `owner/repo` 文本，因此不存在字符改写问题。不要重新引入任何字符改写。
 
 **6. 两个仓库被误判为同一个？**
 `core/utils/repo.py` 提供 `normalize_repo_url` / `repo_urls_match`（去认证信息、去尾斜杠与 `.git`、host 小写后精确比较），`core/flows/base.py:_find_project_id` 使用它，避免 `owner/repo` 与 `owner/repo2` 的宽松子串匹配。

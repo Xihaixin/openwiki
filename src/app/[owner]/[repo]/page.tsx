@@ -59,11 +59,6 @@ const wikiStyles = `
   }
 `;
 
-// Helper function to generate cache key for localStorage
-const getCacheKey = (owner: string, repo: string, repoType: string, language: string, isComprehensive: boolean = true): string => {
-  return `openwiki_cache_${repoType}_${owner}_${repo}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
-};
-
 export default function RepoWikiPage() {
   // Get route parameters and search params
   const params = useParams();
@@ -531,10 +526,6 @@ export default function RepoWikiPage() {
 
     // Proceed with the rest of the refresh logic
     console.log('Refreshing wiki. Server cache will be overwritten upon new generation if not cleared.');
-
-    // Clear the localStorage cache (if any remnants or if it was used before this change)
-    const localStorageCacheKey = getCacheKey(effectiveRepoInfo.owner, effectiveRepoInfo.repo, effectiveRepoInfo.type, language, isComprehensiveView);
-    localStorage.removeItem(localStorageCacheKey);
 
     // Reset all state
     cacheLoadedSuccessfully.current = false;
