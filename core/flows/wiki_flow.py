@@ -886,64 +886,6 @@ Return ONLY valid XML with this exact structure:
         content = re.sub(r'\n```\s*$', '', content)
         return content.strip()
 
-    # # ── 步骤 4: 保存到数据库 ──────────────────────────────────────────────
-
-    # def _save_to_database(self) -> int:
-    #     """
-    #     将生成的 Wiki 页面持久化到 wiki_pages 表。
-
-    #     使用 WikiPageRepository.upsert() 写入每条页面记录，
-    #     (project_id, page_slug, language, is_comprehensive) 唯一约束确保幂等性。
-
-    #     Returns:
-    #         int: 保存的页面数
-    #     """
-
-    #     if not self.project_id:
-    #         logger.warning("project_id 为空，无法保存 Wiki 页面到数据库")
-    #         return 0
-
-    #     if not self.generated_pages:
-    #         logger.warning("没有已生成的页面，跳过数据库保存")
-    #         return 0
-
-    #     if not self.wiki_structure or not self.wiki_structure.pages:
-    #         logger.warning("wiki_structure 为空，跳过数据库保存")
-    #         return 0
-
-    #     saved_count = 0
-    #     logger.info("=" * 60)
-    #     logger.info("步骤 4: 保存 Wiki 页面到数据库 (_save_to_database)")
-    #     logger.info("=" * 60)
-
-    #     for page in self.wiki_structure.pages:
-    #         content_md = self.generated_pages.get(page.id)
-    #         if not content_md:
-    #             logger.warning(f"  跳过页面 '{page.title}'（无内容）")
-    #             continue
-
-    #         try:
-    #             page_id = WikiPageRepository.upsert(
-    #                 project_id=self.project_id,
-    #                 page_slug=page.id,
-    #                 title=page.title,
-    #                 content_md=content_md,
-    #                 language=self.language,
-    #                 is_comprehensive=self.comprehensive,
-    #                 provider=self.provider,
-    #                 model=self.model,
-    #                 source_chunks=None,  # 暂不记录来源分块
-    #             )
-    #             saved_count += 1
-    #             logger.info(f"  ✓ 已保存: {page.title} ({page.id}) → id={page_id}")
-    #         except Exception as e:
-    #             logger.error(f"  ✗ 保存失败: {page.title} ({page.id}): {e}")
-
-    #     logger.info(f"\n✓ 共保存 {saved_count}/{len(self.wiki_structure.pages)} 个页面到 wiki_pages 表")
-    #     return saved_count
-
-    # ── 步骤 5: 打印结果摘要 ──────────────────────────────────────────────
-
     def print_summary(self) -> None:
         """打印 Wiki 生成结果摘要"""
         logger.info("=" * 60)
