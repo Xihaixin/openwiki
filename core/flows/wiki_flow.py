@@ -773,7 +773,9 @@ Return ONLY valid XML with this exact structure:
             try:
                 retriever = self._init_retriever()
                 if retriever:
-                    # 使用页面标题和文件路径作为 RAG 查询
+                    # 使用页面标题和文件路径作为 RAG 查询 
+                    #TODO 使用页面标题和文件路径作为查询的输入，有一点草率 
+
                     rag_query = f"Contexts related to {page.title}: {', '.join(page.filePaths)}"
                     logger.info(f"  RAG 查询: {rag_query}")
 

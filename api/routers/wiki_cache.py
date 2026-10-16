@@ -5,7 +5,6 @@ api.routers.wiki_cache — Wiki 缓存端点
 缓存结果（Wiki 页面与结构）的查询、保存、删除，以及已处理项目列表。
 
 存储实现收敛到 infra.cache，经 WikiCacheStorage 接口调用：
-  - 当前默认文件系统实现（行为向后兼容）
   - 切换为 PG+Redis 生产形态只需替换 wiki_storage 实例
 """
 

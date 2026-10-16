@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# PgvectorRetriever — 兼容 FAISSRetriever 接口
+# PgvectorRetriever
 # ============================================================
 
 class PgvectorRetriever:
@@ -124,7 +124,7 @@ class PgvectorRetriever:
             logger.error(f"PgvectorRetriever: search failed: {e}", exc_info=True)
             return []
 
-        # 转换为兼容的 Document 格式
+        # 转换为 Document 格式
         documents = []
         for r in results:
             doc = _create_compat_document(r)

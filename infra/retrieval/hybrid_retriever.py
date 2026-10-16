@@ -489,7 +489,7 @@ class HybridRetriever:
                 results = self.keyword_search(query_text, top_k=k, file_pattern=file_pattern)
             elif retrieval_type == "rrf":
                 results = self.rrf_search(query_text, query_embedding, top_k=k, file_pattern=file_pattern)
-            else:  # hybrid (default)
+            elif retrieval_type == "hybrid":
                 results = self.hybrid_search(query_text, query_embedding, top_k=k, file_pattern=file_pattern)
         except Exception as e:
             logger.error(
