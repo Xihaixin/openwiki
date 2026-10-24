@@ -182,13 +182,6 @@ class DocumentRepository:
                    WHERE id = %s""",
                 (content, content_hash, token_count, file_type, doc["id"])
             )
-            # 记录版本
-            sync_conn.execute(
-                """INSERT INTO document_versions (document_id, content_hash, content, token_count, change_type)
-                   VALUES (%s, %s, %s, %s, 'modified')""",
-                (doc["id"], content_hash, content, token_count)
-            )
-            return str(doc["id"]), True
 
         # 新建文档
         result = sync_conn.execute(
@@ -200,12 +193,7 @@ class DocumentRepository:
         )
         doc_id = str(result[0]["id"])
 
-        # 记录版本
-        sync_conn.execute(
-            """INSERT INTO document_versions (document_id, content_hash, content, token_count, change_type)
-               VALUES (%s, %s, %s, %s, 'added')""",
-            (doc_id, content_hash, content, token_count)
-        )
+
         return doc_id, True
 
     @staticmethod

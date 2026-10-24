@@ -111,35 +111,9 @@ class RawDocument(Base):
     # 关系
     project: Mapped["Project"] = relationship(back_populates="documents")
     chunks: Mapped[List["DocumentChunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
-    versions: Mapped[List["DocumentVersion"]] = relationship(back_populates="document", cascade="all, delete-orphan")
-    symbols: Mapped[List["CodeSymbol"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<RawDocument(path='{self.file_path}', type='{self.file_type}')>"
-
-
-# ============================================================
-# 4. 文档版本表
-# ============================================================
-
-class DocumentVersion(Base):
-    """文档版本"""
-    __tablename__ = "document_versions"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
-    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("raw_documents.id", ondelete="CASCADE"), nullable=False)
-    git_commit_hash: Mapped[Optional[str]] = mapped_column(Text)
-    content_hash: Mapped[Optional[str]] = mapped_column(String(64))
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    token_count: Mapped[Optional[int]] = mapped_column(Integer)
-    change_type: Mapped[str] = mapped_column(String(20), default="added")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # 关系
-    document: Mapped["RawDocument"] = relationship(back_populates="versions")
-
-    def __repr__(self):
-        return f"<DocumentVersion(doc_id={self.document_id}, change='{self.change_type}')>"
 
 
 # ============================================================
@@ -209,37 +183,6 @@ class ChunkEmbeddingDim256(Base):
 
     def __repr__(self):
         return f"<ChunkEmbedding(chunk_id={self.chunk_id}, model_id={self.model_id})>"
-
-
-# ============================================================
-# 7. 代码符号表
-# ============================================================
-
-class CodeSymbol(Base):
-    """代码符号"""
-    __tablename__ = "code_symbols"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
-    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("raw_documents.id", ondelete="CASCADE"), nullable=False)
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-
-    symbol_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    signature: Mapped[Optional[str]] = mapped_column(Text)
-    visibility: Mapped[Optional[str]] = mapped_column(String(20))
-    start_line: Mapped[Optional[int]] = mapped_column(Integer)
-    end_line: Mapped[Optional[int]] = mapped_column(Integer)
-    parent_symbol_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("code_symbols.id"))
-    docstring: Mapped[Optional[str]] = mapped_column(Text)
-    extra_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # 关系
-    document: Mapped["RawDocument"] = relationship(back_populates="symbols")
-    parent: Mapped[Optional["CodeSymbol"]] = relationship(remote_side="CodeSymbol.id", backref="children")
-
-    def __repr__(self):
-        return f"<CodeSymbol(type='{self.symbol_type}', name='{self.name}')>"
 
 
 # ============================================================
