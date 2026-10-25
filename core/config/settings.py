@@ -133,20 +133,6 @@ class ChunkConfig:
 
 
 # ============================================================
-# Wiki 缓存后端配置
-# ============================================================
-@dataclass
-class CacheConfig:
-    """Wiki 缓存存储后端配置
-
-    backend:
-      - filesystem — 本地 JSON 文件缓存 | 向后兼容
-      - db_redis   — PostgreSQL + Redis 双层缓存（生产和开发形态，对应 openwiki 库）
-    """
-    backend: str = os.getenv("CACHE_BACKEND", "db_redis")  # filesystem | db_redis
-
-
-# ============================================================
 # 全局配置单例
 # ============================================================
 @dataclass
@@ -158,7 +144,6 @@ class Settings:
     llm: LLMConfig = field(default_factory=LLMConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
-    cache: CacheConfig = field(default_factory=CacheConfig)
 
     # 日志配置
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

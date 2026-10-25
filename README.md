@@ -83,8 +83,8 @@ rag_build/
 ├── infra/                    # 基础设施层：不依赖 core / api
 │   ├── config/               # settings.py（配置单源）+ paths.py
 │   ├── db/                   # connection.py（连接池）+ repository.py + models.py
-│   ├── cache/                # base(接口) / filesystem / wiki_cache(PG+Redis) /
-│   │                         # embedding_cache / semantic_cache / repo_lock / redis_client
+│   ├── cache/                # wiki_cache(PG+Redis) / embedding_cache / semantic_cache /
+│   │                         # repo_lock / redis_client
 │   ├── retrieval/            # hybrid_retriever.py — 混合检索
 │   ├── pipeline/             # ingestion.py — 分块 + 嵌入 + 落库流水线
 │   ├── integration/          # deepwiki_adapter.py — 对原版接口的兼容适配
@@ -153,9 +153,6 @@ REDIS_PORT=6379
 # ---- DashScope（嵌入 + LLM）----
 DASHSCOPE_API_KEY=<你的密钥>
 
-# ---- Wiki 缓存后端：db_redis（默认，PG+Redis 双层）| filesystem（本地 JSON，向后兼容）----
-CACHE_BACKEND=db_redis
-
 # ---- 可选：鉴权码 ----
 OPENWIKI_AUTH_MODE=False
 OPENWIKI_AUTH_CODE=
@@ -220,7 +217,6 @@ python -m core.cli --mode research --repo-url https://github.com/owner/repo --qu
 | `PGHOST` / `PGPORT` / `PGDATABASE` / `PGUSER` / `PGPASSWORD` | `localhost` / `5432` / `infra` / `postgres` / `postgres` | PostgreSQL 连接 |
 | `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | `localhost` / `6379` / 空 | Redis 连接 |
 | `DASHSCOPE_API_KEY` | 空 | 嵌入与 LLM 的 DashScope 密钥 |
-| `CACHE_BACKEND` | `db_redis` | Wiki 缓存实现：`db_redis` \| `filesystem` |
 | `STORAGE_BACKEND` | `pgvector` | 预留开关（`pgvector` \| `faiss`），当前代码路径均直接走 pgvector |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `OPENWIKI_AUTH_MODE` / `OPENWIKI_AUTH_CODE` | `False` / 空 | 前端访问鉴权码 |
@@ -389,8 +385,8 @@ src/  (Next.js)
 **3. Redis 没启动会怎样？**
 不会崩。所有 Redis 调用均被 `try/except` 包裹并自动降级，PostgreSQL 作为主存储保证数据完整，仅失去加速效果。
 
-**4. 缓存后端怎么切换？**
-`.env` 设置 `CACHE_BACKEND=filesystem` 切回本地 JSON 文件缓存（向后兼容）；`db_redis`（默认）走 PG 持久化 + Redis 加速。`core/services/wiki_cache.py` 会按配置装配对应实现，调用方零感知。
+**4. 缓存数据存在哪里？**
+固定为 **PostgreSQL 持久化 + Redis 运行期缓存**：Wiki 结果落在 `wiki_structure` / `wiki_pages` 表，Redis 仅作热缓存，不可用时自动降级。不再提供文件系统缓存后端，也没有切换开关。
 
 **5. 仓库名含下划线时缓存对不上？**
 不会。缓存键由 `infra/cache/wiki_cache.py` 的 `WikiCacheManager._cache_key(project_id, language, comprehensive)` 生成，格式为 `wiki:cache:{project_id}:{language}:c0|c1`，以 `project_id` 定位、不含 `owner/repo` 文本，因此不存在字符改写问题。不要重新引入任何字符改写。
@@ -409,7 +405,7 @@ src/  (Next.js)
 
 - [x] 后端四层分层与单向依赖收敛（原 `rag_optimizer/` → `infra/`）
 - [x] 消除 FastAPI 双 app 实例，统一为 `api/main.py` 单入口 + `api/routers/`
-- [x] Wiki 缓存接口化（`WikiCacheStorage`）+ 双实现 + `CACHE_BACKEND` 开关
+- [x] Wiki 缓存收敛为单一实现（`WikiCacheStorage`：PostgreSQL + Redis）
 - [x] 配置单源收敛到 `infra/config/settings.py`
 - [x] 死代码清理（`llm_clients/`、`adalflow_processing.py`、`api/data_pipeline.py` 等）
 - [x] P0/P1 缺陷修复：`comprehensive` 漏传、语言硬编码、`O(n²)` 去重、doc_map 与 retriever 复用、URL 粗糙匹配

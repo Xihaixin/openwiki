@@ -4,8 +4,8 @@ api.routers.wiki_cache — Wiki 缓存端点
 
 缓存结果（Wiki 页面与结构）的查询、保存、删除，以及已处理项目列表。
 
-存储实现收敛到 infra.cache，经 WikiCacheStorage 接口调用：
-  - 切换为 PG+Redis 生产形态只需替换 wiki_storage 实例
+存储层固定在 infra.cache.wiki_cache（PostgreSQL 持久化 + Redis 运行期缓存），
+本模块仅通过 core.services.wiki_cache.WikiCacheService 访问。
 """
 
 import asyncio
@@ -28,8 +28,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Wiki 缓存业务服务（内部默认文件系统实现，行为向后兼容；
-# 切换为 PG+Redis 生产形态只需替换 storage 实例，如 CACHE_BACKEND 配置）
+# Wiki 缓存业务服务（PostgreSQL 持久化 + Redis 运行期缓存）
 wiki_cache_service = WikiCacheService()
 
 

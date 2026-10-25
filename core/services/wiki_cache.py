@@ -3,23 +3,20 @@ core.services.wiki_cache — Wiki 缓存业务服务
 =============================================
 
 对外提供 Wiki 缓存（最终持久化结果）的读写删与已处理项目列表能力，
-屏蔽底层存储实现（文件系统 / PG+Redis）细节。
+屏蔽底层存储实现细节。
 
 设计要点：
   - 上层（api）只依赖本服务，不直接接触 infra 存储层（避免跳跃依赖）
-  - 默认使用文件系统实现，行为向后兼容
-  - 切换为 PG+Redis 生产形态只需替换 storage 实例（如 CACHE_BACKEND 配置）
+  - 存储形态固定为 PostgreSQL 持久化 + Redis 运行期缓存
 
 依赖：
-  - infra.cache.base       — WikiCacheStorage 抽象接口
-  - infra.cache.filesystem — 文件系统实现（CACHE_BACKEND=filesystem，默认）
-  - infra.cache.wiki_cache — PG+Redis 双层缓存实现（CACHE_BACKEND=db_redis）
-  - infra.db.repository    — 项目仓库数据访问
+  - infra.cache.wiki_cache — PostgreSQL + Redis 双层缓存实现
+  - core.models.repository — 项目仓库数据访问
 """
 
 from typing import Any, Dict, List, Optional
 
-from infra.cache.base import WikiCacheStorage
+from infra.cache.wiki_cache import WikiCacheStorage
 from core.models.repository import ProjectRepository
 
 
@@ -27,10 +24,7 @@ class WikiCacheService:
     """Wiki 数据存储与缓存业务服务"""
 
     def __init__(self, storage: Optional[WikiCacheStorage] = None):
-        if storage is None:
-            from infra.cache.wiki_cache import WikiCacheStorage
-            storage = WikiCacheStorage()
-        self._storage = storage
+        self._storage = storage or WikiCacheStorage()
 
     # ── 缓存 CRUD ──────────────────────────────────────────────
 
@@ -60,7 +54,7 @@ class WikiCacheService:
     # ── 已处理项目列表 ─────────────────────────────────────────
 
     def list_storage_projects(self) -> List[Dict[str, Any]]:
-        """从存储层列出已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_structure 表）。"""
+        """从存储层列出已处理项目（扫描 wiki_structure 表）。"""
         return self._storage.list_projects()
 
     def list_db_projects(self) -> List[Dict[str, Any]]:

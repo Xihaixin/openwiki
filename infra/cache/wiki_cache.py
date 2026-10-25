@@ -11,8 +11,8 @@ Redis key 格式:
   wiki:page:{project_id}:{page_slug}              — 单个 Wiki 页面（language/is_comprehensive 上移到结构级）
   wiki:projects:list                              — 已处理项目列表（缓存）
 
-数据契约（与 infra/cache/base.py WikiCacheStorage 一致）：
-  read/save 以 JSON 可序列化 dict（WikiCacheData 等价结构）交互，
+数据契约（WikiCacheData 等价结构）：
+  read/save 以 JSON 可序列化 dict 交互，
 
 """
 
@@ -298,7 +298,7 @@ wiki_cache_manager = WikiCacheManager()
 
 
 class WikiCacheStorage:
-    """PostgreSQL 持久化 + Redis 运行期缓存实现（WikiCacheStorage 接口）。
+    """PostgreSQL 持久化 + Redis 运行期缓存实现。
 
     说明：
     - `wiki_structure` / `wiki_pages` 表保存的是**最终生成的 Wiki 页面与结构**
@@ -565,6 +565,3 @@ def _to_ms(value: Any) -> int:
         except (ValueError, TypeError):
             return 0
 
-
-# 生产形态实例（切换入口：api 层配置 CACHE_BACKEND=db_redis 时使用）
-db_redis_wiki_cache_storage = WikiCacheStorage()
