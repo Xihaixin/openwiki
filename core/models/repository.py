@@ -696,6 +696,38 @@ class WikiStructureRepository:
         return dict(result[0]) if result else None
 
     @staticmethod
+    def get_structure_and_pages(project_id: str, language: str,
+                       is_comprehensive: bool = True)-> Optional[dict]:
+        """只负责获取数据并返回，并不调整其内部数据结构"""
+        wiki_structure_repo = WikiStructureRepository.get_by_project(project_id, language, is_comprehensive)
+        if wiki_structure_repo:
+            repo_data = {
+                'project_id': wiki_structure_repo.get('project_id'),
+                'name': wiki_structure_repo.get('repo_name'),
+                'owner': wiki_structure_repo.get('repo_owner'),
+                'repo_type': wiki_structure_repo.get('repo_type'),
+                'repo_url': wiki_structure_repo.get('repo_url')
+            }
+
+            structure_id = wiki_structure_repo.get('id')
+            structure_data = {
+                'structure_id':structure_id,
+                'structure_json': wiki_structure_repo.get('structure_json'),
+                'provider': wiki_structure_repo.get('provider'),
+                'model': wiki_structure_repo.get('model'),
+            }
+        
+            page_data = WikiPageRepository.get_by_project(project_id, wiki_structure_id=structure_id)
+
+            return {
+                "repo": repo_data,
+                "structure": structure_data,
+                "pages": page_data
+            }
+        if not wiki_structure_repo:
+            return {}
+
+    @staticmethod
     def delete(project_id: str, language: str) -> bool:
         """软删除项目的 Wiki 结构（该语言下所有 is_comprehensive 变体）。
 

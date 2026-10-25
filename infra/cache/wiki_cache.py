@@ -2,27 +2,22 @@
 Wiki 缓存 — Redis + PostgreSQL 双层缓存
 
 采用 Cache-Aside 模式：
-- 读：先查 Redis（热缓存）→ 未命中则查 PostgreSQL → 回填 Redis
-- 写：先写 PostgreSQL（持久化）→ 再写/更新 Redis
+- 读：先查 Redis（整包 payload）→ 未命中则由 PostgreSQL 重建并回填
+- 写：先写 PostgreSQL（持久化）→ 再覆盖写 Redis（整包 payload）
 - 删：软删除 PostgreSQL 数据 → 同时删除 Redis 键
 
 Redis key 格式:
-  wiki:cache:{project_id}:{language}:c{0|1}       — Wiki 结构 + 元数据（按 is_comprehensive 区分）
-  wiki:page:{project_id}:{page_slug}              — 单个 Wiki 页面（language/is_comprehensive 上移到结构级）
-  wiki:projects:list                              — 已处理项目列表（缓存）
+  wiki:cache:{project_id}:{language}:c{0|1}       — 整包 Wiki payload（结构 + 全部页面）
 
 数据契约（WikiCacheData 等价结构）：
-  read/save 以 JSON 可序列化 dict 交互，
-
+  read/save 以 JSON 可序列化 dict 交互，结构校验由 core.services.wiki_cache 负责。
 """
 
 import json
 import logging
 from typing import Any, Dict, List, Optional
 
-
 from infra.cache.redis_client import redis_client
-from core.config.settings import settings
 from core.models.repository import (
     ProjectRepository,
     WikiStructureRepository,
@@ -34,8 +29,6 @@ logger = logging.getLogger(__name__)
 
 # Redis key 前缀
 CACHE_PREFIX = "wiki:cache"
-PAGE_PREFIX = "wiki:page"
-PROJECTS_KEY = "wiki:projects:list"
 
 # 默认 TTL（秒）：7 天
 DEFAULT_TTL = 7 * 24 * 3600
@@ -55,66 +48,42 @@ class WikiCacheManager:
     def _cache_key(project_id: str, language: str, comprehensive: bool = False) -> str:
         return f"{CACHE_PREFIX}:{project_id}:{language}:{_mode_suffix(comprehensive)}"
 
-    @staticmethod
-    def _page_key(project_id: str, page_slug: str) -> str:
-        return f"{PAGE_PREFIX}:{project_id}:{page_slug}"
-
     # ── 读操作：Cache-Aside ────────────────────────────────────────
 
     def get_cache(self, project_id: str, language: str,
                   comprehensive: bool = False) -> Optional[dict]:
-        """获取 Wiki 缓存（Redis → PostgreSQL），按 comprehensive 维度区分"""
-        # 1. 先查 Redis
+        """获取整包 Wiki 缓存（仅 Redis；未命中时由上层从 PostgreSQL 重建）"""
         redis_key = self._cache_key(project_id, language, comprehensive)
         cached = redis_client.get(redis_key)
+
+        if isinstance(cached, dict):
+            logger.debug(f"Wiki cache HIT (Redis): {project_id}/{language}/{comprehensive}")
+            return cached
+
         if cached is not None:
-            try:
-                if isinstance(cached, dict):
-                    logger.debug(f"Wiki cache HIT (Redis): {project_id}/{language}/{comprehensive}")
-                    return cached
-            except (json.JSONDecodeError, TypeError):
-                pass
+            # 命中但结构非法：删除脏值，交由上层重建
+            logger.warning(f"Invalid wiki cache dropped: {redis_key}")
+            redis_client.delete(redis_key)
 
-        # 2. Redis 未命中，查 PostgreSQL
-        record = WikiStructureRepository.get_by_project(project_id, language, comprehensive)
-        if not record:
-            return None
+        logger.debug(f"Wiki cache MISS (Redis): {project_id}/{language}/{comprehensive}")
+        return None
 
-        # 3. 回填 Redis
+    def save_cache(self, payload: dict, project_id: str, language: str, comprehensive: bool=False):
+        """这个函数直接缓存前端传过来的 payload 所包含的全部内容: wiki_structure 和 wiki_pages"""
+        redis_key = self._cache_key(project_id, language, comprehensive)
+        
         try:
-            redis_client.set(redis_key, json.dumps(record, ensure_ascii=False, default=str), ttl=DEFAULT_TTL)
+            result = redis_client.set(
+                redis_key, 
+                json.dumps(payload, ensure_ascii=False, default=str), 
+                ttl=DEFAULT_TTL)
+
+            return result
         except Exception as e:
-            logger.debug(f"Failed to backfill Redis cache: {e}")
+            logger.warning(f"Failed to save the payload cache: {e}")
+            return False
 
-        logger.debug(f"Wiki cache MISS (Redis), loaded from DB: {project_id}/{language}/{comprehensive}")
-        return record
-
-    def get_page(self, project_id: str, page_slug: str) -> Optional[dict]:
-        """获取单个 Wiki 页面（Redis → PostgreSQL）"""
-        # 1. 先查 Redis
-        redis_key = self._page_key(project_id, page_slug)
-        cached = redis_client.get(redis_key)
-        if cached is not None:
-            try:
-                data = json.loads(str(cached))
-                logger.debug(f"Wiki page HIT (Redis): {page_slug}")
-                return data
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # 2. Redis 未命中，查 PostgreSQL
-        record = WikiPageRepository.get_by_slug(project_id, page_slug)
-        if not record:
-            return None
-
-        # 3. 回填 Redis
-        try:
-            redis_client.set(redis_key, json.dumps(record, ensure_ascii=False, default=str), ttl=DEFAULT_TTL)
-        except Exception as e:
-            logger.debug(f"Failed to backfill Redis page cache: {e}")
-
-        logger.debug(f"Wiki page MISS (Redis), loaded from DB: {page_slug}")
-        return record
+    # ── 写操作：先写 PostgreSQL，再写 Redis ────────────────────────
 
     # ── 写操作：先写 PostgreSQL，再写 Redis ────────────────────────
 
@@ -138,28 +107,7 @@ class WikiCacheManager:
             model=model,
         )
 
-        # 2. 再写 Redis
-        try:
-            redis_key = self._cache_key(project_id, language, comprehensive)
-            cache_data = {
-                "id": record_id,
-                "project_id": project_id,
-                "language": language,
-                "is_comprehensive": comprehensive,
-                "structure_json": structure_json,
-                "provider": provider,
-                "model": model,
-            }
-            redis_client.set(redis_key, json.dumps(cache_data, ensure_ascii=False), ttl=DEFAULT_TTL)
-        except Exception as e:
-            logger.debug(f"Failed to update Redis cache: {e}")
-
-        # 3. 清除项目列表缓存（强制下次重新加载）
-        try:
-            redis_client.delete(PROJECTS_KEY)
-        except Exception:
-            pass
-
+        # Redis 不再单独缓存 structure，统一由 save() 写入整包 payload
         return record_id
 
     def save_wiki_page(
@@ -194,27 +142,7 @@ class WikiCacheManager:
             source_chunks=source_chunks,
         )
 
-        # 2. 再写 Redis
-        try:
-            redis_key = self._page_key(project_id, page_slug)
-            page_data = {
-                "id": page_id,
-                "project_id": project_id,
-                "page_slug": page_slug,
-                "title": title,
-                "content_md": content_md,
-                "wiki_structure_id": wiki_structure_id,
-                "file_paths": file_paths or [],
-                "importance": importance,
-                "related_pages": related_pages or [],
-                "parent_id": parent_id,
-                "is_section": is_section,
-                "children": children or [],
-            }
-            redis_client.set(redis_key, json.dumps(page_data, ensure_ascii=False), ttl=DEFAULT_TTL)
-        except Exception as e:
-            logger.debug(f"Failed to update Redis page cache: {e}")
-
+        # Redis 不再单独缓存页面，统一由 save() 写入整包 payload
         return page_id
 
     # ── 删操作：软删除 PostgreSQL + 删除 Redis ─────────────────────
@@ -232,53 +160,7 @@ class WikiCacheManager:
         # 2. PostgreSQL 软删除
         result = WikiStructureRepository.delete(project_id, language)
 
-        # 3. 清除项目列表缓存
-        try:
-            redis_client.delete(PROJECTS_KEY)
-        except Exception:
-            pass
-
         return result
-
-    def delete_project_cache(self, project_id: str):
-        """删除项目的所有缓存（PostgreSQL 软删除 + Redis）"""
-        # 1. 删除 Redis（按模式匹配）
-        try:
-            cache_keys = redis_client.scan(f"{CACHE_PREFIX}:{project_id}:*")
-            page_keys = redis_client.scan(f"{PAGE_PREFIX}:{project_id}:*")
-            for key in (cache_keys or []) + (page_keys or []):
-                redis_client.delete(key)
-        except Exception as e:
-            logger.debug(f"Failed to delete Redis project keys: {e}")
-
-        # 2. PostgreSQL 软删除
-        WikiStructureRepository.delete_by_project(project_id)
-        WikiPageRepository.delete_by_project(project_id)
-
-        # 3. 清除项目列表缓存
-        try:
-            redis_client.delete(PROJECTS_KEY)
-        except Exception:
-            pass
-
-    # ── 项目列表缓存 ──────────────────────────────────────────────
-
-    def get_cached_projects(self) -> Optional[List[dict]]:
-        """获取缓存的项目列表（Redis）"""
-        cached = redis_client.get(PROJECTS_KEY)
-        if cached is not None:
-            try:
-                return json.loads(str(cached))
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return None
-
-    def set_cached_projects(self, projects: List[dict]):
-        """缓存项目列表（Redis）"""
-        try:
-            redis_client.set(PROJECTS_KEY, json.dumps(projects, ensure_ascii=False, default=str), ttl=DEFAULT_TTL)
-        except Exception as e:
-            logger.debug(f"Failed to cache projects list: {e}")
 
 
 # 全局单例
@@ -313,11 +195,8 @@ class WikiCacheStorage:
         return str(project["id"]) if project else None
 
     @staticmethod
-    def _build_generate_pages(pages: Optional[List] | None, content_flag):
+    def _build_generate_pages(pages: Optional[List] | None):
         generated_pages:Dict[str, Any] = {}
-        if content_flag:
-            content_field = "content_md"  # 从 WikiCachePage 表中 content_md 字段获取 pages
-        else: content_field = "content"  # 在 WikiCache 表 pages 属性中有一个 content 字段
 
         if pages is not None:
             for p in pages:
@@ -329,7 +208,7 @@ class WikiCacheStorage:
                 generated_pages[slug] = {
                     "id": slug,
                     "title": p.get("title", slug),
-                    "content": p.get(content_field) or p.get("content") or p.get("content_md") or "",
+                    "content": p.get("content_md") or "",
                     "filePaths": p.get("filePaths") or p.get("file_paths") or [],
                     "importance": p.get("importance") or "medium",
                     "relatedPages": p.get("relatedPages") or p.get("related_pages") or [],
@@ -340,84 +219,54 @@ class WikiCacheStorage:
         return generated_pages
 
     @staticmethod
-    def _build_payload(project_id: str,record: dict) -> Dict[str, Any]:
-        """将 wiki_structure 记录 + wiki_pages 列表组装为完整 payload（WikiCacheData 等价 dict）"""
-        redis_and_content_flag: bool = False
-        language = record.get("language",'zh')
-        comprehensive = record.get("is_comprehensive", False)
-        structure_json = record.get("structure_json") or {}
-        generated_pages: Dict[str, Any] = {}
+    def _build_payload(
+        project_id: str, 
+        language: str='zh',
+        comprehensive: bool=False
+        ) -> Optional[Dict[str, Any]]:
+        """将 wiki_structure 记录 + wiki_pages 列表组装为完整 payload（WikiCacheData 等价 dict）。
 
-        # 判空安全：structure_json 可能无 pages / pages 为空 / 首元素无正文。
-        # 兼容历史脏数据：pages 可能是 dict（旧 bug 污染）或 list，统一归一为 list。
-        raw_pages = structure_json.get("pages") or []
-        if isinstance(raw_pages, dict):
-            structure_pages = list(raw_pages.values())
-        elif isinstance(raw_pages, list):
-            structure_pages = raw_pages
-        else:
-            structure_pages = []
-        first_page = structure_pages[0] if structure_pages else None
-        # 结构内页若携带正文（content 非空），则该结构本身就是完整数据，直接用；
-        # 否则说明只存了结构骨架，需回查 wiki_pages 表补全正文。
-        has_inline_content = bool(
-            isinstance(first_page, dict)
-            and (first_page.get("content") or first_page.get("content_md"))
-        )
+        这里只做组装与最基本的完整性检查；严格契约校验由 core.services.wiki_cache 负责。
+        """
+        wiki_data = WikiStructureRepository.get_structure_and_pages(project_id, language, comprehensive)
+        if not wiki_data:
+            return None
 
-        if has_inline_content:
-            pages = structure_pages
-            redis_and_content_flag = False
-        else:
-            redis_and_content_flag = True
-            pages = WikiPageRepository.get_by_project(project_id)
+        pages = wiki_data.get('pages')
+        repo_data = wiki_data.get('repo') or {}
+        structure_data = wiki_data.get('structure') or {}
+        structure_json = structure_data.get('structure_json')
 
-        generated_pages = WikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
+        if not structure_json:
+            logger.error(
+                "wiki_structure_json missing, skip payload rebuild: project=%s lang=%s",
+                project_id, language
+            )
+            return None
+
+        generated_pages = WikiCacheStorage._build_generate_pages(pages)   # type: ignore
 
         # structure_json.pages 必须保持为 list（前端 WikiStructureModel.pages 为 List[WikiPage]，
         # 用于 find/map/length 遍历）；generated_pages 才是 Dict[str, WikiPage]（按 slug 取正文）。
-        # 注意：不要用 generated_pages(dict) 覆盖 pages(list)，否则触发 pydantic 校验错误。
         structure_json["pages"] = list(generated_pages.values())
 
-        repo_info = {
-            "projectId":project_id,
-            "owner": record.get("repo_owner"),
-            "repo": record.get("repo_name"),
-            "type": record.get("repo_type"),
-            "repoUrl": record.get("repo_url"),
-        }
-
-        wiki_cache_data = {
+        return {
             "project_id": project_id,
-            "wiki_structure": structure_json,
-            "generated_pages": generated_pages,
-            "repo_url": record.get("repo_url"),
-            "repo": repo_info,
-            "provider": record.get("provider"),
-            "model": record.get("model"),
             "language": language,
             "comprehensive": comprehensive,
+            "wiki_structure": structure_json,
+            "generated_pages": generated_pages,
+            "repo": {
+                "projectId": project_id,
+                "owner": repo_data.get("owner"),
+                "repo": repo_data.get("name"),
+                "type": repo_data.get("repo_type"),
+                "repoUrl": repo_data.get("repo_url"),
+            },
+            "repo_url": repo_data.get("repo_url"),
+            "provider": structure_data.get("provider"),
+            "model": structure_data.get("model"),
         }
-
-        # 重新构建缓存
-        if redis_and_content_flag:
-            redis_key = WikiCacheManager._cache_key(project_id, language, comprehensive)
-            if redis_client.exists(redis_key):
-                redis_client.delete(redis_key)
-
-                # 重建 redis_key
-                cache_data = {
-                    "id": redis_key,
-                    "project_id": project_id,
-                    "language": language,
-                    "is_comprehensive": comprehensive,
-                    "structure_json": structure_json,
-                    "provider": record.get("provider"),
-                    "model": record.get("model"),
-                }
-                redis_client.set(redis_key, json.dumps(cache_data, ensure_ascii=False), ttl=DEFAULT_TTL)
-
-        return wiki_cache_data
 
     # ── 接口实现 ──────────────────────────────────────────────
 
@@ -431,25 +280,38 @@ class WikiCacheStorage:
         comprehensive: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """读取已生成 Wiki（Redis → PostgreSQL），返回完整 payload"""
-        if id:
-            project_id = id
-        else:
-            project_id = self._resolve_project_id(owner, repo, repo_type)
+
+        project_id = id or self._resolve_project_id(owner, repo, repo_type)
 
         if not project_id:
             return None
         
-        record = self._manager.get_cache(project_id, language, comprehensive)
-        if not record:
-            return None
+        payload = self._manager.get_cache(project_id, language, comprehensive)
 
-        return self._build_payload(project_id, record)
+        if payload:
+            return payload
+        
+        payload = self._build_payload(project_id, language, comprehensive)
+        
+        if not payload:
+            return None
+        
+        if self._manager.save_cache(payload, project_id, language, comprehensive):
+            logger.debug(f"Wiki payload backfilled: {project_id}/{language}")
+        else:
+            logger.warning(f"Wiki payload backfill failed: {project_id}/{language}")
+
+        return payload
 
     def save(
         self,
         payload: Dict[str, Any],
     ) -> bool:
-        """保存已生成 Wiki（PostgreSQL → Redis），含 structure + 全部页面"""
+        """
+        保存已生成 Wiki 数据（PostgreSQL → Redis），含 structure + 全部页面，直接保存 payload
+        redis 默认情况下，不再分别缓存 structure 和 pages。
+
+        """
         repo_info = payload.get("repo") or {}
         owner = repo_info.get("owner", "")
         repo = repo_info.get("repo", "")
@@ -468,20 +330,27 @@ class WikiCacheStorage:
 
         if not project_id:
             return False
+        
         structure_json = payload.get("wiki_structure") or {}
+        language = payload.get("language", "zh")
+        comprehensive = payload.get("comprehensive", False)
+
         try:
             ## 1. 保存 wiki_structure（结构 + 元数据）
             record_id = self._manager.save_wiki_structure(
                 project_id=project_id,
-                language=payload.get("language", "zh"),
+                language=language,
                 structure_json=structure_json,
-                comprehensive=payload.get("comprehensive", False),
+                comprehensive=comprehensive,
                 provider=payload.get("provider"),
                 model=payload.get("model"),
             )
             logger.debug(f"The WikiStructure's RecordId is {record_id}.")
 
             ## 2. 遍历 generated_pages，逐页写入 wiki_pages（内容 + 树定位字段）
+            # BUG:包含 importance, related_pages, parent_id 在内的几个字段取不到值，好像一开始这些属性都藏在 wiki_structure 中
+            # 后续重新构造的时候，似乎也只是用到了 wiki_page 表中的 slug 和 content_md 两个字段
+
             for page_slug, page_data in wiki_pages.items():
                 if not isinstance(page_data, dict):
                     continue
@@ -497,6 +366,12 @@ class WikiCacheStorage:
                     parent_id=page_data.get("parentId"),
                     is_section=page_data.get("isSection", False),
                     children=page_data.get("children") or [],
+                )
+
+            # 整包 payload 直接覆盖写入 Redis（structure + 全部页面）
+            if not self._manager.save_cache(payload, project_id, language, comprehensive):
+                logger.warning(
+                    f"Wiki payload cache write failed: {project_id}/{language}"
                 )
 
             return True

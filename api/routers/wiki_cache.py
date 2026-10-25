@@ -80,6 +80,7 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
         wiki_structure=request_data.wiki_structure,
         generated_pages=request_data.generated_pages,
         repo=request_data.repo,
+        repo_url=request_data.repo.repoUrl,
         provider=request_data.provider,
         model=request_data.model,
     ).model_dump()
