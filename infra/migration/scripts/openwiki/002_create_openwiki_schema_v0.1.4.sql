@@ -13,6 +13,7 @@
 --   R1. 删除 repository_files 表，它与 raw_documents 表功能高度重复
 --   R2. 删除 raw_documents 表中有 dir_path 字段; 对应 RawDocument 类模型，里面根本就没有这个属性
 --   R3. 删除 code_symbol 表，暂时不需要对文件进行更精细的区分
+--   R4. 为 project 表添加一个 is_deleted 字段；删除 last_commit 字段
 
 --
 -- 配套代码改动（切换默认存储时同步进行）：
@@ -85,9 +86,7 @@ CREATE TABLE IF NOT EXISTS projects (
     repo_url         TEXT,                                 -- 远程仓库地址（本地项目可为空，UNIQUE 允许多 NULL）
     owner            VARCHAR(255),                         -- 仓库归属者（本地项目可空；代码层用 "unknown" 兜底）
     repo_type        VARCHAR(50) NOT NULL DEFAULT 'github',-- 仓库平台类型：github/gitee/local，后续可扩展，不加 CHECK
-    local_path       TEXT,                                 -- 本地项目路径（repo_type='local' 时使用）
-    last_commit      TEXT,                                 -- 【预留】最近一次摄取的 commit hash（增量摄取水位线，当前代码未使用）
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    local_path       TEXT,                                 -- 本地项目路径
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     metadata         JSONB NOT NULL DEFAULT '{}'           -- 扩展信息（如源 pickle 导入参数）
 );

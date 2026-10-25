@@ -135,7 +135,7 @@ async def get_processed_projects():
     project_entries: List[ProcessedProjectEntry] = []
 
     try:
-        # 1. 从存储层扫描已处理项目（文件系统实现扫描缓存目录；DB 实现扫描 wiki_structure 表）
+        # 1. 从存储层扫描已处理项目（DB 实现扫描 wiki_structure 表）
         cached_projects = await asyncio.to_thread(wiki_cache_service.list_storage_projects)
         for entry in cached_projects:
             try:
