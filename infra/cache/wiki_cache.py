@@ -297,7 +297,7 @@ class WikiCacheManager:
 wiki_cache_manager = WikiCacheManager()
 
 
-class DbRedisWikiCacheStorage:
+class WikiCacheStorage:
     """PostgreSQL 持久化 + Redis 运行期缓存实现（WikiCacheStorage 接口）。
 
     说明：
@@ -384,7 +384,7 @@ class DbRedisWikiCacheStorage:
             redis_and_content_flag = True
             pages = WikiPageRepository.get_by_project(project_id)
 
-        generated_pages = DbRedisWikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
+        generated_pages = WikiCacheStorage._build_generate_pages(pages, content_flag=redis_and_content_flag)   # type: ignore
 
         # structure_json.pages 必须保持为 list（前端 WikiStructureModel.pages 为 List[WikiPage]，
         # 用于 find/map/length 遍历）；generated_pages 才是 Dict[str, WikiPage]（按 slug 取正文）。
@@ -567,4 +567,4 @@ def _to_ms(value: Any) -> int:
 
 
 # 生产形态实例（切换入口：api 层配置 CACHE_BACKEND=db_redis 时使用）
-db_redis_wiki_cache_storage = DbRedisWikiCacheStorage()
+db_redis_wiki_cache_storage = WikiCacheStorage()

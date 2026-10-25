@@ -7,7 +7,7 @@ Wiki 数据存储抽象接口
 - Redis 仅作为应用运行过程中"生成 Wiki / 加载历史 Wiki"的**运行期缓存**。
 
 因此存储层抽象为 `WikiCacheStorage` 接口：
-- `DbRedisWikiCacheStorage`（infra.cache.wiki_cache）：PostgreSQL 持久化 + Redis 运行期缓存，生产形态
+- `WikiCacheStorage`（infra.cache.wiki_cache）：PostgreSQL 持久化 + Redis 运行期缓存，生产形态
 
 调用方（api / core.flows）只依赖此接口，通过配置或 DI 选择实现。
 """

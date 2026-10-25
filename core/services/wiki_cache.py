@@ -28,8 +28,8 @@ class WikiCacheService:
 
     def __init__(self, storage: Optional[WikiCacheStorage] = None):
         if storage is None:
-            from infra.cache.wiki_cache import DbRedisWikiCacheStorage
-            storage = DbRedisWikiCacheStorage()
+            from infra.cache.wiki_cache import WikiCacheStorage
+            storage = WikiCacheStorage()
         self._storage = storage
 
     # ── 缓存 CRUD ──────────────────────────────────────────────
