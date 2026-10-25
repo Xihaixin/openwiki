@@ -71,7 +71,7 @@ class Project(Base):
     owner: Mapped[Optional[str]] = mapped_column(String(255))
     repo_type: Mapped[str] = mapped_column(String(50), default="gitee")
     local_path: Mapped[Optional[str]] = mapped_column(Text)
-    last_commit: Mapped[Optional[str]] = mapped_column(Text)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     extra_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
@@ -395,12 +395,6 @@ class WikiStructure(Base):
 
     # Wiki 结构（JSONB，包含 sections、page hierarchy 等）
     structure_json: Mapped[dict] = mapped_column(JSONB, default=dict)
-
-    # 仓库信息
-    repo_owner: Mapped[Optional[str]] = mapped_column(String(255))
-    repo_name: Mapped[Optional[str]] = mapped_column(String(255))
-    repo_type: Mapped[Optional[str]] = mapped_column(String(50), default="github")
-    repo_url: Mapped[Optional[str]] = mapped_column(Text)
 
     # LLM 配置（收敛到结构级，wiki_pages 不再冗余）
     provider: Mapped[Optional[str]] = mapped_column(String(50))

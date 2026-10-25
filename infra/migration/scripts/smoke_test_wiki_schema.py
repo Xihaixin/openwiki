@@ -32,7 +32,6 @@ EXPECTED_TABLES: dict[str, dict[str, Any]] = {
     "wiki_structure": {
         "columns": {
             "id", "project_id", "language", "is_comprehensive", "structure_json",
-            "repo_owner", "repo_name", "repo_type", "repo_url",
             "provider", "model", "is_deleted", "deleted_at", "created_at", "updated_at",
         },
         "unique_constraints": {
@@ -177,15 +176,14 @@ def smoke_repository() -> bool:
             language=lang,
             structure_json=structure_json,
             is_comprehensive=True,
-            repo_owner="smoke-owner", repo_name="smoke-repo",
-            repo_type="github", provider="openai", model="gpt-4",
+            provider="openai", model="gpt-4",
         )
         print(f"{PASS} WikiStructureRepository.upsert -> id={structure_id}")
 
         # --- 2.2 get_by_project ---
         rec = WikiStructureRepository.get_by_project(test_project_id, lang, True)
-        if rec and rec.get("is_comprehensive") is True and rec.get("repo_name") == "smoke-repo":
-            print(f"{PASS} WikiStructureRepository.get_by_project 命中 (is_comprehensive=True)")
+        if rec and rec.get("is_comprehensive") is True and rec.get("repo_name") == "smoke-test-repo":
+            print(f"{PASS} WikiStructureRepository.get_by_project 命中（repo_name 来自 projects JOIN）")
         else:
             print(f"{FAIL} get_by_project 结果异常: {rec}")
             all_ok = False

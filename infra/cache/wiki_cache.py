@@ -124,10 +124,6 @@ class WikiCacheManager:
         language: str,
         structure_json: dict,
         comprehensive: bool = False,
-        repo_owner: Optional[str] = None,
-        repo_name: Optional[str] = None,
-        repo_type: Optional[str] = None,
-        repo_url: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
@@ -138,10 +134,6 @@ class WikiCacheManager:
             language=language,
             structure_json=structure_json,
             is_comprehensive=comprehensive,
-            repo_owner=repo_owner,
-            repo_name=repo_name,
-            repo_type=repo_type,
-            repo_url=repo_url,
             provider=provider,
             model=model,
         )
@@ -155,10 +147,6 @@ class WikiCacheManager:
                 "language": language,
                 "is_comprehensive": comprehensive,
                 "structure_json": structure_json,
-                "repo_owner": repo_owner,
-                "repo_name": repo_name,
-                "repo_type": repo_type,
-                "repo_url": repo_url,
                 "provider": provider,
                 "model": model,
             }
@@ -424,10 +412,6 @@ class WikiCacheStorage:
                     "language": language,
                     "is_comprehensive": comprehensive,
                     "structure_json": structure_json,
-                    "repo_owner": record.get("repo_owner"),
-                    "repo_name": record.get("repo_name"),
-                    "repo_type": record.get("repo_type"),
-                    "repo_url": record.get("repo_url"),
                     "provider": record.get("provider"),
                     "model": record.get("model"),
                 }
@@ -492,10 +476,6 @@ class WikiCacheStorage:
                 language=payload.get("language", "zh"),
                 structure_json=structure_json,
                 comprehensive=payload.get("comprehensive", False),
-                repo_owner=owner or None,
-                repo_name=repo or None,
-                repo_type=repo_type,
-                repo_url=repo_info.get("repoUrl") or repo_info.get("url"),
                 provider=payload.get("provider"),
                 model=payload.get("model"),
             )
@@ -531,23 +511,32 @@ class WikiCacheStorage:
             return False
         return self._manager.delete_cache(project_id, language)
 
-    def list_projects(self) -> List[Dict[str, Any]]:
-        """列出所有已处理项目（wiki_structure 表），字段对齐 ProcessedProjectEntry 契约"""
-        rows = WikiStructureRepository.list_all()
+    def list_projects(self, default_language: str = "en") -> List[Dict[str, Any]]:
+        """列出所有已初始化项目及其 Wiki 变体，字段对齐 ProcessedProjectEntry 契约。
+
+        项目身份与变体维度由 ProjectRepository.list_processed 一次查询返回，
+        本方法只做契约转换（展示名拼接、时间戳毫秒化）。
+        """
+        rows = ProjectRepository.list_processed(default_language)
         projects: List[Dict[str, Any]] = []
         for r in rows:
-            owner = r.get("repo_owner") or ""
-            repo = r.get("repo_name") or ""
+            proj_id = str(r.get("id") or "")
+            if not proj_id:
+                logger.warning("skip row without project id: %r", r)
+                continue
+
+            owner = r.get("owner") or ""
+            repo = r.get("repo") or ""
             projects.append(
                 {
-                    "id": r.get("project_id"),
+                    "id": proj_id,
                     "owner": owner,
                     "repo": repo,
-                    "name": f"{owner}/{repo}".strip("/") or r.get("project_id"),
+                    "name": f"{owner}/{repo}".strip("/") or proj_id,
                     "repo_type": r.get("repo_type") or "github",
                     "submittedAt": _to_ms(r.get("created_at")),
-                    "language": r.get("language"),
-                    "comprehensive": r.get("is_comprehensive", False),
+                    "language": r.get("language") or default_language,
+                    "comprehensive": bool(r.get("comprehensive")),
                 }
             )
         return projects

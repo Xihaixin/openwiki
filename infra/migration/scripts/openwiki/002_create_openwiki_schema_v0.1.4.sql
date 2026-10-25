@@ -13,7 +13,9 @@
 --   R1. 删除 repository_files 表，它与 raw_documents 表功能高度重复
 --   R2. 删除 raw_documents 表中有 dir_path 字段; 对应 RawDocument 类模型，里面根本就没有这个属性
 --   R3. 删除 code_symbol 表，暂时不需要对文件进行更精细的区分
---   R4. 为 project 表添加一个 is_deleted 字段；删除 last_commit 字段
+--   R4. 为 project 表添加 is_deleted 与 created_at 字段；删除 last_commit 字段
+--   R5. 移除 wiki_structure 表中的 repo 信息（旧列使用存量库请执行 003 脚本）
+--   R6. wiki_structure 保持 (project_id, language, is_comprehensive) 组成唯一键，换模型即生成覆盖
 
 --
 -- 配套代码改动（切换默认存储时同步进行）：
@@ -87,6 +89,8 @@ CREATE TABLE IF NOT EXISTS projects (
     owner            VARCHAR(255),                         -- 仓库归属者（本地项目可空；代码层用 "unknown" 兜底）
     repo_type        VARCHAR(50) NOT NULL DEFAULT 'github',-- 仓库平台类型：github/gitee/local，后续可扩展，不加 CHECK
     local_path       TEXT,                                 -- 本地项目路径
+    is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,       -- 软删除（重新摄取时自动恢复）
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     metadata         JSONB NOT NULL DEFAULT '{}'           -- 扩展信息（如源 pickle 导入参数）
 );
@@ -305,10 +309,6 @@ CREATE TABLE IF NOT EXISTS wiki_structure (
     language         VARCHAR(16) NOT NULL DEFAULT 'zh',      -- Wiki 语言
     is_comprehensive BOOLEAN NOT NULL DEFAULT TRUE,          -- FALSE=concise, TRUE=comprehensive
     structure_json   JSONB NOT NULL DEFAULT '{}',            -- 完整 WikiStructure 结构 payload
-    repo_owner       VARCHAR(255),                           -- 冗余仓库归属（列表页免 JOIN）
-    repo_name        VARCHAR(255),                           -- 冗余仓库名
-    repo_type        VARCHAR(50) NOT NULL DEFAULT 'github',
-    repo_url         TEXT,
     provider         VARCHAR(50),                            -- LLM 提供商
     model            VARCHAR(100),                           -- LLM 模型
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,         -- 软删除标记（TRUE=已删除，不物理删行）

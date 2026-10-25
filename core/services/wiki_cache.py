@@ -17,7 +17,6 @@ core.services.wiki_cache — Wiki 缓存业务服务
 from typing import Any, Dict, List, Optional
 
 from infra.cache.wiki_cache import WikiCacheStorage
-from core.models.repository import ProjectRepository
 
 
 class WikiCacheService:
@@ -51,12 +50,6 @@ class WikiCacheService:
         """删除指定 Wiki。返回是否确实删除了内容。"""
         return self._storage.delete(owner, repo, repo_type, language)
 
-    # ── 已处理项目列表 ─────────────────────────────────────────
-
-    def list_storage_projects(self) -> List[Dict[str, Any]]:
-        """从存储层列出已处理项目（扫描 wiki_structure 表）。"""
-        return self._storage.list_projects()
-
-    def list_db_projects(self) -> List[Dict[str, Any]]:
-        """从 PostgreSQL 数据库列出项目（作为补充来源）。"""
-        return ProjectRepository.list_all()
+    def list_projects(self, default_language: str = "en") -> List[Dict[str, Any]]:
+        """列出所有已初始化项目（含尚未生成 Wiki 的项目）及其变体维度。"""
+        return self._storage.list_projects(default_language)
