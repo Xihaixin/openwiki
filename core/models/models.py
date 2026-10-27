@@ -367,7 +367,6 @@ class WikiPage(Base):
     is_section: Mapped[bool] = mapped_column(Boolean, default=False)
     children: Mapped[list] = mapped_column(JSONB, default=list)
 
-    source_chunks: Mapped[Optional[dict]] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

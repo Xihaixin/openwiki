@@ -346,7 +346,6 @@ CREATE TABLE IF NOT EXISTS wiki_pages (
     parent_id         TEXT,                                 -- 树定位：父节点 id（所属 section）
     is_section        BOOLEAN NOT NULL DEFAULT FALSE,       -- 树定位：是否本身是 section 节点
     children          JSONB NOT NULL DEFAULT '[]',          -- 树定位：子节点 id 列表
-    source_chunks     JSONB,                                -- 溯源：生成该页使用的 RAG 分块 [{chunk_id,...}]
     version           INT NOT NULL DEFAULT 1,               -- 页面内容版本
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

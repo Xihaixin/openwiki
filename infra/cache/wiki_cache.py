@@ -123,7 +123,6 @@ class WikiCacheManager:
         parent_id: Optional[str] = None,
         is_section: bool = False,
         children: Optional[List[str]] = None,
-        source_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """保存单个 Wiki 页面（PostgreSQL → Redis）"""
         # 1. 先写 PostgreSQL
@@ -139,7 +138,6 @@ class WikiCacheManager:
             parent_id=parent_id,
             is_section=is_section,
             children=children,
-            source_chunks=source_chunks,
         )
 
         # Redis 不再单独缓存页面，统一由 save() 写入整包 payload
