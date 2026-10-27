@@ -44,7 +44,7 @@ logger = logging.getLogger("core.flows.wiki")
 
 class WikiGenerationFlow(BaseFlow):
     """
-    Wiki 文档生成流 — 完整复现前端 page.tsx 中的 Wiki 生成逻辑。
+    Wiki 文档生成流 — 完整复现前端 page.tsx 中的 Wiki 生成逻辑。(包含 WikiStructure 和 WikiPage)
 
     流程:
       1. fetch_repository_structure()  → 获取文件树和 README
@@ -99,7 +99,7 @@ class WikiGenerationFlow(BaseFlow):
         self.file_tree: Optional[str] = None
         self.readme: Optional[str] = None
         self.wiki_structure: Optional[WikiStructure] = None
-        self.generated_pages: Dict[str, str] = {}  # page_id → content
+        self.generated_pages: Dict[str, Any] = {}  # page_id → content
 
         # 性能缓存（#8 doc_map / #9 retriever 复用）
         # 文档索引首次从 DB 加载后缓存，多页面生成时复用，避免每页全量重载
@@ -605,6 +605,8 @@ Return ONLY valid XML with this exact structure:
             logger.warning("wiki_structure 为 None，无法生成页面")
             return {}
 
+        ## WikiStructure.pages -> page.content 为空 ，我们不想让 WikiStructure 表的 structure_json 太大
+        ## 因此，当访问已处理项目时，我们返回的内容是从 WikiStructure.structure_json 和 WikiPages.content_md 组合而成
         pages = self.wiki_structure.pages
         total = len(pages)
         logger.info(f"开始生成 {total} 个页面（串行模式）")
@@ -613,7 +615,6 @@ Return ONLY valid XML with this exact structure:
             logger.info(f"\n  [{idx + 1}/{total}] 生成页面: {page.title} ({page.id})")
             content = await self._generate_single_page(page)
             self.generated_pages[page.id] = content
-            page.content = content
             logger.info(f"  ✓ 页面 '{page.title}' 生成完成 ({len(content)} 字符)")
 
         logger.info(f"\n✓ 所有 {total} 个页面生成完成")
@@ -774,7 +775,7 @@ Return ONLY valid XML with this exact structure:
                 retriever = self._init_retriever()
                 if retriever:
                     # 使用页面标题和文件路径作为 RAG 查询 
-                    #TODO 使用页面标题和文件路径作为查询的输入，有一点草率 
+                    #TODO 目前仅以页面标题和文件路径作为查询的输入，有一点草率，且对关键词检索不够友好
 
                     rag_query = f"Contexts related to {page.title}: {', '.join(page.filePaths)}"
                     logger.info(f"  RAG 查询: {rag_query}")
