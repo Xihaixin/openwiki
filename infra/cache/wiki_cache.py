@@ -348,24 +348,33 @@ class WikiCacheStorage:
             logger.debug(f"The WikiStructure's RecordId is {record_id}.")
 
             ## 2. 遍历 generated_pages，逐页写入 wiki_pages（内容 + 树定位字段）
-            # BUG:包含 importance, related_pages, parent_id 在内的几个字段取不到值，好像一开始这些属性都藏在 wiki_structure 中
-            # 后续重新构造的时候，似乎也只是用到了 wiki_page 表中的 slug 和 content_md 两个字段
+            # 元数据以 wiki_structure.pages 为权威来源：generated_pages 只保证 content，
+            # 旧版前端 / 手工调用 / 单页重生成时可能缺失元数据，这里统一兜底合并。
+            structure_pages = {
+                p.get("id"): p
+                for p in (structure_json.get("pages") or [])
+                if isinstance(p, dict) and p.get("id")
+            }
 
             for page_slug, page_data in wiki_pages.items():
                 if not isinstance(page_data, dict):
                     continue
+
+                page_id = page_data.get("id") or page_slug
+                meta = structure_pages.get(page_id) or {}
+
                 self._manager.save_wiki_page(
                     project_id=project_id,
-                    page_slug=page_data.get("id") or page_slug,
-                    title=page_data.get("title", page_slug),
+                    page_slug=page_id,
+                    title=page_data.get("title") or meta.get("title") or page_slug,
                     content_md=page_data.get("content") or "",
                     wiki_structure_id=record_id,
-                    file_paths=page_data.get("filePaths") or [],
-                    importance=page_data.get("importance") or "medium",
-                    related_pages=page_data.get("relatedPages") or [],
-                    parent_id=page_data.get("parentId"),
-                    is_section=page_data.get("isSection", False),
-                    children=page_data.get("children") or [],
+                    file_paths=meta.get("filePaths") or page_data.get("filePaths") or [],
+                    importance=meta.get("importance") or page_data.get("importance") or "medium",
+                    related_pages=meta.get("relatedPages") or page_data.get("relatedPages") or [],
+                    parent_id=meta.get("parentId") or page_data.get("parentId") or None,
+                    is_section=bool(meta.get("isSection", page_data.get("isSection", False))),
+                    children=meta.get("children") or page_data.get("children") or [],
                 )
 
             # 整包 payload 直接覆盖写入 Redis（structure + 全部页面）
