@@ -146,6 +146,8 @@ class PgvectorRetriever:
         retrieval_type: Optional[str] = None,
         top_k: Optional[int] = None,
         file_pattern: Optional[str] = None,
+        task: str = "unknown",
+        source_id: Optional[str] = None,
     ) -> Tuple[List[RetrievalResult], Any]:
         """使用原生接口检索
 
@@ -172,6 +174,8 @@ class PgvectorRetriever:
                 top_k=top_k or self.top_k,
                 file_pattern=file_pattern,
                 log_retrieval=True,
+                task=task,
+                source_id=source_id,
             )
         except Exception as e:
             logger.error(f"PgvectorRetriever.search failed: {e}", exc_info=True)

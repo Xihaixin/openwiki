@@ -238,6 +238,11 @@ class RetrievalLog(Base):
     hybrid_weight: Mapped[float] = mapped_column(Float, default=0.7)
 
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+
+    # 溯源：检索用途与业务来源主键（wiki_pages.id / qa_logs.id）
+    task: Mapped[str] = mapped_column(String(50), default="unknown")
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # 关系

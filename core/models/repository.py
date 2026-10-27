@@ -440,17 +440,35 @@ class RetrievalRepository:
     def log_retrieval(project_id: Optional[str], query_text: str,
                       query_embedding: Optional[List[float]],
                       top_k: int, retrieval_type: str,
-                      hybrid_weight: float, latency_ms: int) -> str:
-        """记录检索"""
+                      hybrid_weight: float, latency_ms: int,
+                      task: str = "unknown",
+                      source_id: Optional[str] = None) -> str:
+        """记录检索。
+
+        Args:
+            task: 检索用途 — wiki_page / chat / research / unknown
+            source_id: 业务来源主键（wiki_pages.id 或 qa_logs.id）；
+                       检索发生时尚未生成可留空，之后用 bind_source 回填
+        """
         embedding_str = vector_to_str(query_embedding) if query_embedding else None
         result = sync_conn.execute(
             """INSERT INTO retrieval_logs
-               (project_id, query_text, query_embedding, top_k, retrieval_type, hybrid_weight, latency_ms)
-               VALUES (%s, %s, %s::vector, %s, %s, %s, %s)
+               (project_id, query_text, query_embedding, top_k, retrieval_type,
+                hybrid_weight, latency_ms, task, source_id)
+               VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
-            (project_id, query_text, embedding_str, top_k, retrieval_type, hybrid_weight, latency_ms)
+            (project_id, query_text, embedding_str, top_k, retrieval_type,
+             hybrid_weight, latency_ms, task, source_id)
         )
         return str(result[0]["id"])
+
+    @staticmethod
+    def bind_source(retrieval_id: str, source_id: str):
+        """检索完成后回填业务来源主键（如 qa_logs.id）。"""
+        sync_conn.execute(
+            "UPDATE retrieval_logs SET source_id = %s WHERE id = %s",
+            (source_id, retrieval_id)
+        )
 
     @staticmethod
     def log_results(retrieval_id: str, results: List[Dict[str, Any]]):
@@ -510,7 +528,6 @@ class WikiPageRepository:
                parent_id: Optional[str] = None,
                is_section: bool = False,
                children: Optional[List[str]] = None,
-               source_chunks: Optional[List[Dict[str, Any]]] = None,
                version: int = 1) -> str:
         """
         插入或更新 Wiki 页面。
@@ -531,7 +548,6 @@ class WikiPageRepository:
             parent_id: 目录树父节点 id
             is_section: 是否本身是 section 节点
             children: 子节点 id 列表
-            source_chunks: 来源分块列表
             version: 版本号
 
         Returns:
@@ -541,9 +557,9 @@ class WikiPageRepository:
             """INSERT INTO wiki_pages
                (project_id, page_slug, title, content_md, wiki_structure_id,
                 file_paths, importance, related_pages,
-                parent_id, is_section, children, source_chunks, version)
+                parent_id, is_section, children, version)
                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb,
-                       %s, %s, %s::jsonb, %s::jsonb, %s)
+                       %s, %s, %s::jsonb, %s)
                ON CONFLICT (project_id, page_slug) DO UPDATE SET
                title = EXCLUDED.title,
                content_md = EXCLUDED.content_md,
@@ -554,15 +570,31 @@ class WikiPageRepository:
                parent_id = EXCLUDED.parent_id,
                is_section = EXCLUDED.is_section,
                children = EXCLUDED.children,
-               source_chunks = EXCLUDED.source_chunks,
                version = wiki_pages.version + 1,
                updated_at = NOW()
                RETURNING id""",
             (project_id, page_slug, title, content_md, wiki_structure_id,
              json.dumps(file_paths or []), importance, json.dumps(related_pages or []),
              parent_id, is_section, json.dumps(children or []),
-             json.dumps(source_chunks) if source_chunks else None,
              version)
+        )
+        return str(result[0]["id"])
+
+    @staticmethod
+    def ensure_page(project_id: str, page_slug: str, title: str,
+                    wiki_structure_id: Optional[str] = None) -> str:
+        """确保页面行存在并返回其主键（不覆盖已有正文）。
+
+        用于生成阶段提前拿到 wiki_pages.id，供 retrieval_logs.source_id 关联；
+        后续 save() 的 upsert 命中同一行（project_id + page_slug），id 不变。
+        """
+        result = sync_conn.execute(
+            """INSERT INTO wiki_pages
+               (project_id, page_slug, title, wiki_structure_id)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (project_id, page_slug) DO UPDATE SET updated_at = NOW()
+               RETURNING id""",
+            (project_id, page_slug, title, wiki_structure_id)
         )
         return str(result[0]["id"])
 

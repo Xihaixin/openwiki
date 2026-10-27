@@ -460,7 +460,9 @@ class HybridRetriever:
     def search(self, query_text: str, query_embedding: List[float],
                retrieval_type: str = "hybrid", top_k: Optional[int] = None,
                file_pattern: Optional[str] = None,
-               log_retrieval: bool = True) -> Tuple[List[RetrievalResult], RetrievalStats]:
+               log_retrieval: bool = True,
+               task: str = "unknown",
+               source_id: Optional[str] = None) -> Tuple[List[RetrievalResult], RetrievalStats]:
         """
         统一检索接口
 
@@ -474,6 +476,8 @@ class HybridRetriever:
             top_k: 返回结果数
             file_pattern: 可选的文件路径过滤模式
             log_retrieval: 是否记录检索日志
+            task: 检索用途（wiki_page / chat / research / unknown）
+            source_id: 业务来源主键（wiki_pages.id 或 qa_logs.id），可空
 
         Returns:
             (检索结果列表, 检索统计) — 异常时返回 ([], stats)
@@ -512,6 +516,8 @@ class HybridRetriever:
                     retrieval_type=retrieval_type,
                     hybrid_weight=self.vector_weight,
                     latency_ms=latency_ms,
+                    task=task,
+                    source_id=source_id,
                 )
                 # 记录结果明细
                 result_data = [

@@ -100,6 +100,8 @@ class WikiGenerationFlow(BaseFlow):
         self.readme: Optional[str] = None
         self.wiki_structure: Optional[WikiStructure] = None
         self.generated_pages: Dict[str, Any] = {}  # page_id → content
+        # 页面在数据库中的主键（page_id → wiki_pages.id），用于检索记录溯源
+        self.page_db_ids: Dict[str, str] = {}
 
         # 性能缓存（#8 doc_map / #9 retriever 复用）
         # 文档索引首次从 DB 加载后缓存，多页面生成时复用，避免每页全量重载
@@ -611,6 +613,19 @@ Return ONLY valid XML with this exact structure:
         total = len(pages)
         logger.info(f"开始生成 {total} 个页面（串行模式）")
 
+        # 预创建页面行，提前拿到 wiki_pages.id，供检索日志 source_id 关联。
+        # 后续 save() 的 upsert 命中同一行（project_id + page_slug），主键不变。
+        if self.project_id:
+            for page in pages:
+                try:
+                    self.page_db_ids[page.id] = WikiPageRepository.ensure_page(
+                        project_id=self.project_id,
+                        page_slug=page.id,
+                        title=page.title,
+                    )
+                except Exception as e:
+                    logger.warning(f"  ensure_page 失败（page={page.id}）: {e}")
+
         for idx, page in enumerate(pages):
             logger.info(f"\n  [{idx + 1}/{total}] 生成页面: {page.title} ({page.id})")
             content = await self._generate_single_page(page)
@@ -781,7 +796,13 @@ Return ONLY valid XML with this exact structure:
                     logger.info(f"  RAG 查询: {rag_query}")
 
                     # 使用 PgvectorRetriever.search() 原生接口（返回 (List[RetrievalResult], RetrievalStats)）
-                    results, stats = retriever.search(rag_query, top_k=10)
+                    # task/source_id 写入 retrieval_logs，便于按页面反查生成时使用的分块
+                    results, stats = retriever.search(
+                        rag_query,
+                        top_k=10,
+                        task="wiki_page",
+                        source_id=self.page_db_ids.get(page.id),
+                    )
 
                     if results:
                         # 按 file_path 分组（对应原始项目 lines 216-234）
