@@ -10,11 +10,9 @@ api.routers.wiki_cache — Wiki 缓存端点
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 
 from core.config import WIKI_AUTH_CODE, WIKI_AUTH_MODE, configs
 from api.models import (
@@ -49,7 +47,7 @@ async def get_cached_wiki(
     """获取缓存的 Wiki 数据"""
     supported_langs = configs.get("lang", {}).get("supported_languages", {})
     if language not in supported_langs:
-        language = configs.get("lang", {}).get("default", "en")
+        language = configs.get("lang", {}).get("default", "zh")
 
     logger.info(f"Retrieving wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
     cached_data = wiki_cache_service.read(projectId, owner, repo, repo_type, language, comprehensive)
@@ -82,6 +80,7 @@ async def store_wiki_cache(request_data: WikiCacheRequest):
         wiki_structure=request_data.wiki_structure,
         generated_pages=request_data.generated_pages,
         repo=request_data.repo,
+        repo_url=request_data.repo.repoUrl,
         provider=request_data.provider,
         model=request_data.model,
     ).model_dump()
@@ -125,18 +124,22 @@ async def delete_wiki_cache(
 @router.get("/api/processed_projects", response_model=List[ProcessedProjectEntry])
 async def get_processed_projects():
     """
-    列出所有已处理的项目
+    列出所有已初始化项目（含已摄取但尚未生成 Wiki、正在处理中的项目）。
 
-    数据源（按 (owner, repo, language) 复合键去重后合并）：
-      1. 存储层已处理项目（文件系统扫描缓存目录 / DB 扫描 wiki_structure 表）
-      2. PostgreSQL projects 表补充：仅存在于 projects 表的项目
-         （projects 表无 language 字段，语言取配置默认值；comprehensive 默认 False）
+    数据源：projects LEFT JOIN wiki_structure(is_deleted=false)
+      - 项目身份来自 projects
+      - language / comprehensive 来自 wiki_structure；无变体时取默认值
+    同一项目的多个语言/模式会返回多行。
     """
+    default_language = configs.get("lang", {}).get("default", "en")
     project_entries: List[ProcessedProjectEntry] = []
 
     try:
-        # 1. 从存储层扫描已处理项目（DB 实现扫描 wiki_structure 表）
-        cached_projects = await asyncio.to_thread(wiki_cache_service.list_storage_projects)
+        # 同步 DB 调用放入线程池，避免阻塞事件循环
+        cached_projects = await asyncio.to_thread(
+            wiki_cache_service.list_projects, default_language
+        )
+
         for entry in cached_projects:
             try:
                 project_entries.append(

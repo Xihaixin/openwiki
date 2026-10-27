@@ -26,7 +26,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.flows.wiki_flow import WikiGenerationFlow
-from core.models import WikiPage, WikiStructure
+from core.models import WikiStructure
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +48,6 @@ class WikiGenerateRequest(BaseModel):
     comprehensive: bool = Field(default=True, description="是否生成综合 Wiki（更多页面）")
     local_path: Optional[str] = Field(default=None, description="本地仓库路径（repo_type=local 时使用）")
     token: Optional[str] = Field(default=None, description="个人申请的 access token 密钥")
-
-
-class WikiPageGenerateRequest(BaseModel):
-    """单页 Wiki 生成请求"""
-    repo_url: str = Field(..., description="仓库 URL")
-    repo_type: str = Field(default="github", description="仓库类型")
-    provider: str = Field(default="dashscope", description="LLM 提供者")
-    model: Optional[str] = Field(default=None, description="模型名称")
-    language: str = Field(default="zh", description="语言代码")
-    page: WikiPage = Field(..., description="要生成的页面信息")
-    file_tree: Optional[str] = Field(default=None, description="文件树（用于上下文）")
-    readme: Optional[str] = Field(default=None, description="README 内容（用于上下文）")
 
 
 # ============================================================
@@ -163,6 +151,12 @@ async def generate_wiki(request: WikiGenerateRequest):
 
                 total_pages = len(wiki_structure.pages)
                 for idx, page in enumerate(wiki_structure.pages):
+                    page_info = {}
+                    for p in pages_info:
+                        if page.id == p['id']:
+                            page_info = p
+                            break
+
                     yield _sse_event("page_progress", {
                         "page_id": page.id,
                         "page_title": page.title,
@@ -175,15 +169,17 @@ async def generate_wiki(request: WikiGenerateRequest):
                     # 生成单个页面
                     content = await flow._generate_single_page(page)
                     flow.generated_pages[page.id] = content
-                    page.content = content
 
                     yield _sse_event("page_complete", {
                         "page_id": page.id,
                         "page_title": page.title,
                         "content": content,
-                        "index": idx + 1,
-                        "total": total_pages,
-                        "content_length": len(content),
+                        "filePaths": page_info.get('filePaths', []),
+                        "importance": page_info.get('importance', 'medium'),
+                        "relatedPages": page_info.get('relatedPages', []),
+                        "isSection": page_info.get('isSection', False),
+                        "parentId": page_info.get('parentId'),
+                        "children": page_info.get('children', [])
                     })
 
                 # 完成
@@ -211,74 +207,6 @@ async def generate_wiki(request: WikiGenerateRequest):
 
     except Exception as e:
         logger.error(f"Wiki generation error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@wiki_router.post("/wiki/generate/page")
-async def generate_wiki_page(request: WikiPageGenerateRequest):
-    """
-    生成单个 Wiki 页面
-
-    用于重新生成单个页面，不需要执行完整的 Wiki 生成流程。
-    """
-    try:
-        logger.info(
-            f"Single page generation: repo={request.repo_url}, "
-            f"page={request.page.id} ({request.page.title})"
-        )
-
-        # 初始化 WikiGenerationFlow
-        flow = WikiGenerationFlow(
-            repo_url=request.repo_url,
-            provider=request.provider,
-            model=request.model or "qwen-plus",
-            language=request.language,
-            comprehensive=True,
-        )
-
-        # 设置文件树和 README（如果提供）
-        if request.file_tree:
-            flow.file_tree = request.file_tree
-        if request.readme:
-            flow.readme = request.readme
-
-        async def page_stream():
-            try:
-                yield _sse_event("progress", {
-                    "step": "generating",
-                    "message": f"正在生成页面: {request.page.title}",
-                })
-
-                content = await flow._generate_single_page(request.page)
-
-                yield _sse_event("page_complete", {
-                    "page_id": request.page.id,
-                    "page_title": request.page.title,
-                    "content": content,
-                    "content_length": len(content),
-                })
-
-                yield _sse_event("complete", {
-                    "message": "页面生成完成",
-                    "page_id": request.page.id,
-                })
-
-            except Exception as e:
-                logger.error(f"Page generation error: {e}", exc_info=True)
-                yield _sse_event("error", {"message": str(e)})
-
-        return StreamingResponse(
-            page_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    except Exception as e:
-        logger.error(f"Page generation error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

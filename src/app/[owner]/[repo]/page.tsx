@@ -257,7 +257,7 @@ export default function RepoWikiPage() {
           local_path: effectiveRepoInfo.type === 'local'
             ? effectiveRepoInfo.localPath
             : undefined,
-          tolen: effectiveRepoInfo.token,
+          token: effectiveRepoInfo.token,
         },
         (event: SSEEvent) => {
           switch (event.event) {
@@ -319,9 +319,12 @@ export default function RepoWikiPage() {
                   id: d.page_id as string,
                   title: (d.page_title as string) || '',
                   content: (d.content as string) || '',
-                  filePaths: [],
-                  importance: 'medium' as const,
-                  relatedPages: [],
+                  filePaths: Array.isArray(d.filePaths) ? d.filePaths as string[] : [],
+                  importance: (d.importance as 'high' | 'medium' | 'low') || 'medium',
+                  relatedPages: Array.isArray(d.relatedPages) ? d.relatedPages as string[] : [],
+                  isSection: (d.isSection as boolean) || false,
+                  parentId: (d.parentId as string) || undefined,
+                  children: Array.isArray(d.children) ? d.children as string[] : []
                 },
               }));
 
@@ -336,6 +339,7 @@ export default function RepoWikiPage() {
             case 'complete': {
               const projectId = event.data.project_id as string;
               setProjectId(projectId);
+              setPagesInProgress(new Set()); 
               setIsLoading(false);
               setLoadingMessage(undefined);
               break;

@@ -39,6 +39,17 @@ class ProjectRepository:
     """项目数据访问"""
 
     @staticmethod
+    def _revive_if_deleted(project: dict) -> dict:
+        """命中已软删除的项目时恢复标记，重新摄取沿用同一 project_id。"""
+        if project.get("is_deleted"):
+            sync_conn.execute(
+                "UPDATE projects SET is_deleted = FALSE, updated_at = NOW() WHERE id = %s",
+                (project["id"],)
+            )
+            project["is_deleted"] = False
+        return project
+
+    @staticmethod
     def get_or_create(name: str, repo_url: Optional[str] = None,
                       owner: Optional[str] = None, repo_type: str = "gitee",
                       local_path: Optional[str] = None) -> dict:
@@ -62,8 +73,8 @@ class ProjectRepository:
             )
             if web_existing:
                 logger.info(f"Found existing project by repo_url: {repo_url}")
-                return dict(web_existing[0])
-            
+                return ProjectRepository._revive_if_deleted(dict(web_existing[0]))
+
         if repo_type == "local":
             # 如果是本地，先根据 local_path 来查询
             local_existing = sync_conn.execute(
@@ -76,7 +87,7 @@ class ProjectRepository:
                     (name, owner, repo_type)
                 )
             if local_existing:
-                return dict(local_existing[0])
+                return ProjectRepository._revive_if_deleted(dict(local_existing[0]))
 
         # 如果上面都没有查出数据，就需要创建
         result = sync_conn.execute(
@@ -98,20 +109,37 @@ class ProjectRepository:
 
     @staticmethod
     def list_all() -> List[dict]:
-        """列出所有项目"""
+        """列出所有未软删除的项目"""
         result = sync_conn.execute(
-            "SELECT * FROM projects ORDER BY created_at DESC"
+            "SELECT * FROM projects WHERE is_deleted = FALSE ORDER BY created_at DESC"
         )
         return [dict(r) for r in result] if result else []
 
     @staticmethod
-    def update_last_commit(project_id: str, commit_hash: str):
-        """更新最近 commit"""
-        sync_conn.execute(
-            "UPDATE projects SET last_commit = %s, updated_at = NOW() WHERE id = %s",
-            (commit_hash, project_id)
+    def list_processed(default_language: str = "en") -> List[dict]:
+        """列出所有项目及其 Wiki 变体（一项目多变体则多行）。
+
+        项目身份来自 projects（唯一真相），变体维度来自 wiki_structure；
+        LEFT JOIN 保证「已摄取但尚未生成 Wiki」的项目也会返回，
+        此时 language 取 default_language，comprehensive 取 FALSE。
+        """
+        result = sync_conn.execute(
+            """SELECT p.id,
+                      COALESCE(p.owner, 'local')           AS owner,
+                      COALESCE(p.name, '')                 AS repo,
+                      COALESCE(p.repo_type, 'github')      AS repo_type,
+                      p.created_at,
+                      COALESCE(ws.language, %s)            AS language,
+                      COALESCE(ws.is_comprehensive, FALSE) AS comprehensive
+               FROM projects p
+               LEFT JOIN wiki_structure ws
+                      ON ws.project_id = p.id AND ws.is_deleted = FALSE
+               WHERE p.is_deleted = FALSE
+               ORDER BY p.created_at DESC""",
+            (default_language,)
         )
-        
+        return [dict(r) for r in result] if result else []
+
     @staticmethod
     def find(
         name: str,
@@ -412,17 +440,35 @@ class RetrievalRepository:
     def log_retrieval(project_id: Optional[str], query_text: str,
                       query_embedding: Optional[List[float]],
                       top_k: int, retrieval_type: str,
-                      hybrid_weight: float, latency_ms: int) -> str:
-        """记录检索"""
+                      hybrid_weight: float, latency_ms: int,
+                      task: str = "unknown",
+                      source_id: Optional[str] = None) -> str:
+        """记录检索。
+
+        Args:
+            task: 检索用途 — wiki_page / chat / research / unknown
+            source_id: 业务来源主键（wiki_pages.id 或 qa_logs.id）；
+                       检索发生时尚未生成可留空，之后用 bind_source 回填
+        """
         embedding_str = vector_to_str(query_embedding) if query_embedding else None
         result = sync_conn.execute(
             """INSERT INTO retrieval_logs
-               (project_id, query_text, query_embedding, top_k, retrieval_type, hybrid_weight, latency_ms)
-               VALUES (%s, %s, %s::vector, %s, %s, %s, %s)
+               (project_id, query_text, query_embedding, top_k, retrieval_type,
+                hybrid_weight, latency_ms, task, source_id)
+               VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
-            (project_id, query_text, embedding_str, top_k, retrieval_type, hybrid_weight, latency_ms)
+            (project_id, query_text, embedding_str, top_k, retrieval_type,
+             hybrid_weight, latency_ms, task, source_id)
         )
         return str(result[0]["id"])
+
+    @staticmethod
+    def bind_source(retrieval_id: str, source_id: str):
+        """检索完成后回填业务来源主键（如 qa_logs.id）。"""
+        sync_conn.execute(
+            "UPDATE retrieval_logs SET source_id = %s WHERE id = %s",
+            (source_id, retrieval_id)
+        )
 
     @staticmethod
     def log_results(retrieval_id: str, results: List[Dict[str, Any]]):
@@ -482,7 +528,6 @@ class WikiPageRepository:
                parent_id: Optional[str] = None,
                is_section: bool = False,
                children: Optional[List[str]] = None,
-               source_chunks: Optional[List[Dict[str, Any]]] = None,
                version: int = 1) -> str:
         """
         插入或更新 Wiki 页面。
@@ -503,7 +548,6 @@ class WikiPageRepository:
             parent_id: 目录树父节点 id
             is_section: 是否本身是 section 节点
             children: 子节点 id 列表
-            source_chunks: 来源分块列表
             version: 版本号
 
         Returns:
@@ -513,9 +557,9 @@ class WikiPageRepository:
             """INSERT INTO wiki_pages
                (project_id, page_slug, title, content_md, wiki_structure_id,
                 file_paths, importance, related_pages,
-                parent_id, is_section, children, source_chunks, version)
+                parent_id, is_section, children, version)
                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb,
-                       %s, %s, %s::jsonb, %s::jsonb, %s)
+                       %s, %s, %s::jsonb, %s)
                ON CONFLICT (project_id, page_slug) DO UPDATE SET
                title = EXCLUDED.title,
                content_md = EXCLUDED.content_md,
@@ -526,15 +570,31 @@ class WikiPageRepository:
                parent_id = EXCLUDED.parent_id,
                is_section = EXCLUDED.is_section,
                children = EXCLUDED.children,
-               source_chunks = EXCLUDED.source_chunks,
                version = wiki_pages.version + 1,
                updated_at = NOW()
                RETURNING id""",
             (project_id, page_slug, title, content_md, wiki_structure_id,
              json.dumps(file_paths or []), importance, json.dumps(related_pages or []),
              parent_id, is_section, json.dumps(children or []),
-             json.dumps(source_chunks) if source_chunks else None,
              version)
+        )
+        return str(result[0]["id"])
+
+    @staticmethod
+    def ensure_page(project_id: str, page_slug: str, title: str,
+                    wiki_structure_id: Optional[str] = None) -> str:
+        """确保页面行存在并返回其主键（不覆盖已有正文）。
+
+        用于生成阶段提前拿到 wiki_pages.id，供 retrieval_logs.source_id 关联；
+        后续 save() 的 upsert 命中同一行（project_id + page_slug），id 不变。
+        """
+        result = sync_conn.execute(
+            """INSERT INTO wiki_pages
+               (project_id, page_slug, title, wiki_structure_id)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (project_id, page_slug) DO UPDATE SET updated_at = NOW()
+               RETURNING id""",
+            (project_id, page_slug, title, wiki_structure_id)
         )
         return str(result[0]["id"])
 
@@ -598,10 +658,6 @@ class WikiStructureRepository:
         language: str,
         structure_json: dict,
         is_comprehensive: bool = True,
-        repo_owner: Optional[str] = None,
-        repo_name: Optional[str] = None,
-        repo_type: Optional[str] = None,
-        repo_url: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
@@ -629,15 +685,10 @@ class WikiStructureRepository:
         result = sync_conn.execute(
             """INSERT INTO wiki_structure
                (project_id, language, is_comprehensive, structure_json,
-                repo_owner, repo_name, repo_type, repo_url,
                 provider, model)
-               VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)
+               VALUES (%s, %s, %s, %s::jsonb, %s, %s)
                ON CONFLICT (project_id, language, is_comprehensive) DO UPDATE SET
                structure_json = EXCLUDED.structure_json,
-               repo_owner = EXCLUDED.repo_owner,
-               repo_name = EXCLUDED.repo_name,
-               repo_type = EXCLUDED.repo_type,
-               repo_url = EXCLUDED.repo_url,
                provider = EXCLUDED.provider,
                model = EXCLUDED.model,
                is_deleted = FALSE,
@@ -645,7 +696,6 @@ class WikiStructureRepository:
                updated_at = NOW()
                RETURNING id""",
             (project_id, language, is_comprehensive, json.dumps(structure_json),
-             repo_owner, repo_name, repo_type, repo_url,
              provider, model)
         )
         return str(result[0]["id"])
@@ -664,11 +714,50 @@ class WikiStructureRepository:
             Optional[dict]: 结构记录，未找到返回 None
         """
         result = sync_conn.execute(
-            "SELECT * FROM wiki_structure WHERE project_id = %s AND language = %s "
-            "AND is_comprehensive = %s AND is_deleted = FALSE",
+            """SELECT ws.*,
+                      p.owner     AS repo_owner,
+                      p.name      AS repo_name,
+                      p.repo_type AS repo_type,
+                      p.repo_url  AS repo_url
+               FROM wiki_structure ws
+               JOIN projects p ON p.id = ws.project_id
+               WHERE ws.project_id = %s AND ws.language = %s
+                 AND ws.is_comprehensive = %s AND ws.is_deleted = FALSE""",
             (project_id, language, is_comprehensive)
         )
         return dict(result[0]) if result else None
+
+    @staticmethod
+    def get_structure_and_pages(project_id: str, language: str,
+                       is_comprehensive: bool = True)-> Optional[dict]:
+        """只负责获取数据并返回，并不调整其内部数据结构"""
+        wiki_structure_repo = WikiStructureRepository.get_by_project(project_id, language, is_comprehensive)
+        if wiki_structure_repo:
+            repo_data = {
+                'project_id': wiki_structure_repo.get('project_id'),
+                'name': wiki_structure_repo.get('repo_name'),
+                'owner': wiki_structure_repo.get('repo_owner'),
+                'repo_type': wiki_structure_repo.get('repo_type'),
+                'repo_url': wiki_structure_repo.get('repo_url')
+            }
+
+            structure_id = wiki_structure_repo.get('id')
+            structure_data = {
+                'structure_id':structure_id,
+                'structure_json': wiki_structure_repo.get('structure_json'),
+                'provider': wiki_structure_repo.get('provider'),
+                'model': wiki_structure_repo.get('model'),
+            }
+        
+            page_data = WikiPageRepository.get_by_project(project_id, wiki_structure_id=structure_id)
+
+            return {
+                "repo": repo_data,
+                "structure": structure_data,
+                "pages": page_data
+            }
+        if not wiki_structure_repo:
+            return {}
 
     @staticmethod
     def delete(project_id: str, language: str) -> bool:
@@ -699,8 +788,19 @@ class WikiStructureRepository:
 
     @staticmethod
     def list_all() -> List[dict]:
-        """列出所有未软删除的 Wiki 结构记录（按更新时间倒序）。"""
+        """列出所有未软删除的 Wiki 结构记录（按更新时间倒序）。
+
+        仓库身份字段通过 JOIN projects 补齐（键名与旧表结构一致）。
+        """
         result = sync_conn.execute(
-            "SELECT * FROM wiki_structure WHERE is_deleted = FALSE ORDER BY updated_at DESC"
+            """SELECT ws.*,
+                      p.owner     AS repo_owner,
+                      p.name      AS repo_name,
+                      p.repo_type AS repo_type,
+                      p.repo_url  AS repo_url
+               FROM wiki_structure ws
+               JOIN projects p ON p.id = ws.project_id
+               WHERE ws.is_deleted = FALSE
+               ORDER BY ws.updated_at DESC"""
         )
         return [dict(r) for r in result] if result else []
