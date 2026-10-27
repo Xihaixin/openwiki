@@ -257,7 +257,7 @@ export default function RepoWikiPage() {
           local_path: effectiveRepoInfo.type === 'local'
             ? effectiveRepoInfo.localPath
             : undefined,
-          tolen: effectiveRepoInfo.token,
+          token: effectiveRepoInfo.token,
         },
         (event: SSEEvent) => {
           switch (event.event) {
